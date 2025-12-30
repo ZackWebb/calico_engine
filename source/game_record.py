@@ -78,9 +78,14 @@ class TileRecord:
 
 @dataclass
 class DecisionRecord:
-    """Record of a single decision point in the game."""
+    """Record of a single decision point in the game.
+
+    For combined actions (place_and_choose), phase is "PLACE_AND_CHOOSE" and
+    both action_position/action_hand_index and action_market_index are populated.
+    For the final turn, action_market_index is None (no market choice after last placement).
+    """
     turn_number: int
-    phase: str  # "PLACE_TILE" or "CHOOSE_MARKET"
+    phase: str  # "PLACE_TILE", "CHOOSE_MARKET", or "PLACE_AND_CHOOSE"
 
     # State before decision
     hand_tiles: List[TileRecord]
@@ -187,8 +192,11 @@ class GameRecord:
     final_score: int
     score_breakdown: dict
 
+    format_version: str = "2.0"  # Version 2.0 supports combined actions
+
     def to_dict(self) -> dict:
         return {
+            "format_version": self.format_version,
             "timestamp": self.timestamp,
             "mcts_config": self.mcts_config,
             "cats": [c.to_dict() for c in self.cats],
@@ -207,7 +215,8 @@ class GameRecord:
             goals=[GoalRecord.from_dict(g) for g in data["goals"]],
             decisions=[DecisionRecord.from_dict(d) for d in data["decisions"]],
             final_score=data["final_score"],
-            score_breakdown=data["score_breakdown"]
+            score_breakdown=data["score_breakdown"],
+            format_version=data.get("format_version", "1.0")  # Default to 1.0 for old records
         )
 
     def save(self, filepath: str):

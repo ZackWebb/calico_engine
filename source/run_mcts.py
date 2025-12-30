@@ -39,10 +39,6 @@ def run_mcts_game(agent: MCTSAgent, verbose: bool = False) -> Tuple[int, Simulat
     turn = 0
 
     while not game.is_game_over():
-        actions = game.get_legal_actions()
-        if not actions:
-            break
-
         # Use MCTS to select action
         start = time.time()
         action = agent.select_action(game)
@@ -55,7 +51,17 @@ def run_mcts_game(agent: MCTSAgent, verbose: bool = False) -> Tuple[int, Simulat
             print(f"Turn {turn:2d} | Phase: {phase:13s} | "
                   f"Remaining: {remaining:2d} | Time: {elapsed:.2f}s")
 
-            if action.action_type == "place_tile":
+            if action.action_type == "place_and_choose":
+                hand_tile = state.player_hand[action.hand_index]
+                print(f"         Action: Place {hand_tile.color.name} "
+                      f"{hand_tile.pattern.name} at {action.position}")
+                if action.market_index is not None:
+                    market_tile = state.market_tiles[action.market_index]
+                    print(f"                 + Take {market_tile.color.name} "
+                          f"{market_tile.pattern.name} from market")
+                else:
+                    print(f"                 (Final turn - no market choice)")
+            elif action.action_type == "place_tile":
                 hand_tile = state.player_hand[action.hand_index]
                 print(f"         Action: Place {hand_tile.color.name} "
                       f"{hand_tile.pattern.name} at {action.position}")
@@ -106,17 +112,14 @@ def run_recorded_mcts_game(
         "exploration_constant": agent.exploration_constant,
         "max_iterations": agent.max_iterations,
         "late_game_threshold": agent.late_game_threshold,
-        "use_heuristic": agent.use_heuristic
+        "use_heuristic": agent.use_heuristic,
+        "use_combined_actions": agent.use_combined_actions
     }
     recorder = GameRecorder(game, mcts_config)
 
     turn = 0
 
     while not game.is_game_over():
-        actions = game.get_legal_actions()
-        if not actions:
-            break
-
         # Use MCTS to select action WITH analysis
         start = time.time()
         action, candidates = agent.select_action_with_analysis(game)
@@ -129,7 +132,17 @@ def run_recorded_mcts_game(
             print(f"Turn {turn:2d} | Phase: {phase:13s} | "
                   f"Remaining: {remaining:2d} | Time: {elapsed:.2f}s")
 
-            if action.action_type == "place_tile":
+            if action.action_type == "place_and_choose":
+                hand_tile = state.player_hand[action.hand_index]
+                print(f"         Action: Place {hand_tile.color.name} "
+                      f"{hand_tile.pattern.name} at {action.position}")
+                if action.market_index is not None:
+                    market_tile = state.market_tiles[action.market_index]
+                    print(f"                 + Take {market_tile.color.name} "
+                          f"{market_tile.pattern.name} from market")
+                else:
+                    print(f"                 (Final turn - no market choice)")
+            elif action.action_type == "place_tile":
                 hand_tile = state.player_hand[action.hand_index]
                 print(f"         Action: Place {hand_tile.color.name} "
                       f"{hand_tile.pattern.name} at {action.position}")
@@ -142,7 +155,11 @@ def run_recorded_mcts_game(
             print(f"         Candidates ({len(candidates)}):")
             for i, (cand_action, visits, avg_score) in enumerate(candidates[:3]):
                 marker = "*" if cand_action == action else " "
-                if cand_action.action_type == "place_tile":
+                if cand_action.action_type == "place_and_choose":
+                    market_str = f"+mkt[{cand_action.market_index}]" if cand_action.market_index is not None else "(final)"
+                    print(f"           {marker} {i+1}. place at {cand_action.position} {market_str} "
+                          f"(visits={visits}, avg={avg_score:.1f})")
+                elif cand_action.action_type == "place_tile":
                     print(f"           {marker} {i+1}. place at {cand_action.position} "
                           f"(visits={visits}, avg={avg_score:.1f})")
                 else:

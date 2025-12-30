@@ -23,11 +23,15 @@ class MCTSNode:
     visits: int = 0
     total_score: float = 0.0
     untried_actions: List[Action] = field(default_factory=list)
+    use_combined_actions: bool = True  # Whether to use combined place_and_choose actions
 
     def __post_init__(self):
         """Initialize untried actions from state if not provided."""
         if not self.untried_actions and not self.is_terminal:
-            self.untried_actions = self.state.get_legal_actions()
+            if self.use_combined_actions:
+                self.untried_actions = self.state.get_combined_legal_actions()
+            else:
+                self.untried_actions = self.state.get_legal_actions()
 
     @property
     def is_fully_expanded(self) -> bool:
@@ -70,7 +74,8 @@ class MCTSNode:
         child = MCTSNode(
             state=child_state,
             parent=self,
-            action=action
+            action=action,
+            use_combined_actions=self.use_combined_actions
         )
         self.children.append(child)
         return child
@@ -86,6 +91,7 @@ class MCTSAgent:
         late_game_threshold: Remaining positions below which to use full rollouts
         use_heuristic: Whether to use heuristic evaluation in early/mid game
         use_deterministic_rollout: Use greedy heuristic rollouts instead of random
+        use_combined_actions: Use combined place_and_choose actions (atomic turns)
         verbose: Print debug information
     """
 
@@ -96,6 +102,7 @@ class MCTSAgent:
         late_game_threshold: int = 5,
         use_heuristic: bool = True,
         use_deterministic_rollout: bool = False,
+        use_combined_actions: bool = True,
         verbose: bool = False
     ):
         self.exploration_constant = exploration_constant
@@ -103,6 +110,7 @@ class MCTSAgent:
         self.late_game_threshold = late_game_threshold
         self.use_heuristic = use_heuristic
         self.use_deterministic_rollout = use_deterministic_rollout
+        self.use_combined_actions = use_combined_actions
         self.verbose = verbose
 
         # Import heuristic lazily to avoid circular imports
@@ -130,7 +138,7 @@ class MCTSAgent:
             Best action according to MCTS
         """
         # Create root node from current state
-        root = MCTSNode(state=game.copy())
+        root = MCTSNode(state=game.copy(), use_combined_actions=self.use_combined_actions)
 
         # Run MCTS iterations
         for _ in range(self.max_iterations):
@@ -150,7 +158,10 @@ class MCTSAgent:
         # Return action of most-visited child (robust selection)
         if not root.children:
             # Edge case: no children expanded (very few iterations)
-            actions = game.get_legal_actions()
+            if self.use_combined_actions:
+                actions = game.get_combined_legal_actions()
+            else:
+                actions = game.get_legal_actions()
             return random.choice(actions) if actions else None
 
         best_child = max(root.children, key=lambda c: c.visits)
@@ -177,7 +188,7 @@ class MCTSAgent:
             where candidates is list of (action, visits, avg_score) tuples
         """
         # Create root node from current state
-        root = MCTSNode(state=game.copy())
+        root = MCTSNode(state=game.copy(), use_combined_actions=self.use_combined_actions)
 
         # Run MCTS iterations
         for _ in range(self.max_iterations):
@@ -191,7 +202,10 @@ class MCTSAgent:
 
         # Handle edge case
         if not root.children:
-            actions = game.get_legal_actions()
+            if self.use_combined_actions:
+                actions = game.get_combined_legal_actions()
+            else:
+                actions = game.get_legal_actions()
             if actions:
                 return actions[0], [(actions[0], 0, 0.0)]
             return None, []
@@ -251,7 +265,7 @@ class MCTSAgent:
     def _full_rollout(self, state: SimulationMode) -> float:
         """Play random game to completion and return final score."""
         state_copy = state.copy()
-        return float(state_copy.play_random_game())
+        return float(state_copy.play_random_game(use_combined_actions=self.use_combined_actions))
 
     def _deterministic_rollout(self, state: SimulationMode) -> float:
         """
@@ -265,7 +279,11 @@ class MCTSAgent:
         evaluate = self._get_heuristic()
 
         while not state_copy.is_game_over():
-            actions = state_copy.get_legal_actions()
+            # Use combined actions if configured
+            if self.use_combined_actions:
+                actions = state_copy.get_combined_legal_actions()
+            else:
+                actions = state_copy.get_legal_actions()
             if not actions:
                 break
 
@@ -308,4 +326,10 @@ class MCTSAgent:
         sorted_children = sorted(root.children, key=lambda c: c.visits, reverse=True)
         for child in sorted_children[:5]:
             avg = child.total_score / child.visits if child.visits > 0 else 0
-            print(f"    {child.action.action_type}: visits={child.visits}, avg_score={avg:.1f}")
+            action = child.action
+            if action.action_type == "place_and_choose":
+                market_str = f", market={action.market_index}" if action.market_index is not None else " (final)"
+                print(f"    place_and_choose: pos={action.position}, hand={action.hand_index}{market_str}, "
+                      f"visits={child.visits}, avg={avg:.1f}")
+            else:
+                print(f"    {action.action_type}: visits={child.visits}, avg_score={avg:.1f}")

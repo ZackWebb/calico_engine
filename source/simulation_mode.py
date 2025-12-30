@@ -47,13 +47,19 @@ class SimulationMode(GameMode):
 
     # --- Convenience Methods for MCMC Agent ---
 
-    def play_random_game(self) -> int:
+    def play_random_game(self, use_combined_actions: bool = True) -> int:
         """
         Play game to completion with random moves.
         Returns final score. Useful for MCMC rollouts.
+
+        Args:
+            use_combined_actions: If True, use combined place_and_choose actions
         """
         while not self.is_game_over():
-            actions = self.get_legal_actions()
+            if use_combined_actions:
+                actions = self.get_combined_legal_actions()
+            else:
+                actions = self.get_legal_actions()
             if not actions:
                 break
             action = random.choice(actions)

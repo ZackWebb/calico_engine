@@ -24,8 +24,26 @@ class GameState:
 
 @dataclass
 class Action:
-    """Represents a player action."""
-    action_type: str  # "place_tile" or "choose_market"
-    position: Optional[Tuple[int, int, int]] = None  # For place_tile (q, r, s)
+    """Represents a player action.
+
+    Action types:
+    - "place_tile": Place a tile from hand onto the board
+    - "choose_market": Take a tile from the market
+    - "place_and_choose": Combined action - place tile AND choose from market (atomic turn)
+
+    For place_and_choose:
+    - Uses position, hand_index, and market_index
+    - market_index=None indicates final turn (board fills, no market choice)
+    """
+    action_type: str  # "place_tile", "choose_market", or "place_and_choose"
+    position: Optional[Tuple[int, int, int]] = None  # For place_tile/place_and_choose (q, r, s)
     hand_index: Optional[int] = None  # Which tile from hand (0 or 1)
-    market_index: Optional[int] = None  # For choose_market (0, 1, or 2)
+    market_index: Optional[int] = None  # For choose_market/place_and_choose (0, 1, or 2; None for final turn)
+
+    def is_combined_action(self) -> bool:
+        """Check if this is a combined place_and_choose action."""
+        return self.action_type == "place_and_choose"
+
+    def is_final_turn_action(self) -> bool:
+        """Check if this is the final turn (no market choice after placement)."""
+        return self.action_type == "place_and_choose" and self.market_index is None

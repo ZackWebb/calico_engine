@@ -55,6 +55,7 @@ def mcts(
     record: bool = typer.Option(False, "--record", "-r", help="Record game with MCTS decision analysis"),
     no_heuristic: bool = typer.Option(False, "--no-heuristic", help="Disable heuristic (use full rollouts)"),
     deterministic: bool = typer.Option(False, "--deterministic", "-d", help="Use deterministic rollouts"),
+    separate: bool = typer.Option(False, "--separate", help="Use separate actions (old behavior) instead of combined"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print detailed per-move info"),
 ):
     """
@@ -63,6 +64,9 @@ def mcts(
     By default runs a single game with verbose output.
     Use --baseline N to compare MCTS vs random over N games.
     Use --record to save game recording for replay analysis.
+
+    By default, uses combined place_and_choose actions (atomic turns).
+    Use --separate for the old two-phase behavior.
     """
     import time
     from statistics import mean, stdev
@@ -81,6 +85,7 @@ def mcts(
         late_game_threshold=threshold,
         use_heuristic=not no_heuristic,
         use_deterministic_rollout=deterministic,
+        use_combined_actions=not separate,
         verbose=verbose
     )
 
@@ -90,6 +95,7 @@ def mcts(
     typer.echo(f"  Late game threshold: {threshold}")
     typer.echo(f"  Use heuristic: {not no_heuristic}")
     typer.echo(f"  Deterministic rollouts: {deterministic}")
+    typer.echo(f"  Combined actions: {not separate}")
     typer.echo()
 
     if baseline > 0:

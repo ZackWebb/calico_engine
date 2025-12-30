@@ -68,6 +68,45 @@ class GameMode(ABC):
 
         return actions
 
+    def get_combined_legal_actions(self) -> List[Action]:
+        """Get list of combined place_and_choose actions.
+
+        Each action represents a full turn: placing a tile AND choosing from market.
+        For the final turn (board fills after placement), market_index will be None.
+        """
+        actions = []
+
+        # Must be in PLACE_TILE phase to generate combined actions
+        if self.turn_phase != TurnPhase.PLACE_TILE:
+            return actions
+
+        empty_positions = self.player.grid.get_empty_positions()
+
+        for pos in empty_positions:
+            for hand_idx in range(len(self.player.tiles)):
+                # Check if placing here would end the game (only 1 empty position left)
+                is_final_turn = len(empty_positions) == 1
+
+                if is_final_turn:
+                    # Final turn: no market choice after placement
+                    actions.append(Action(
+                        action_type="place_and_choose",
+                        position=pos,
+                        hand_index=hand_idx,
+                        market_index=None
+                    ))
+                else:
+                    # Normal turn: include all market choices
+                    for market_idx in range(len(self.market.tiles)):
+                        actions.append(Action(
+                            action_type="place_and_choose",
+                            position=pos,
+                            hand_index=hand_idx,
+                            market_index=market_idx
+                        ))
+
+        return actions
+
     def is_game_over(self) -> bool:
         """Check if game has ended (all positions filled)."""
         return len(self.player.grid.get_empty_positions()) == 0
@@ -102,6 +141,8 @@ class GameMode(ABC):
             return self._do_place_tile(action.position, action.hand_index)
         elif action.action_type == "choose_market":
             return self._do_choose_market(action.market_index)
+        elif action.action_type == "place_and_choose":
+            return self._do_place_and_choose(action)
         return False
 
     def _do_place_tile(self, position: Tuple[int, int, int], hand_index: int) -> bool:
@@ -132,6 +173,33 @@ class GameMode(ABC):
             self._end_turn()
             return True
         return False
+
+    def _do_place_and_choose(self, action: Action) -> bool:
+        """Execute combined tile placement and market selection as atomic action."""
+        if self.turn_phase != TurnPhase.PLACE_TILE:
+            return False
+
+        # Step 1: Place the tile
+        q, r, s = action.position
+        if not self.player.place_tile(q, r, s, action.hand_index):
+            return False
+
+        # Step 2: Check if game is over (board filled after placement)
+        if self.is_game_over():
+            self.turn_phase = TurnPhase.GAME_OVER
+            return True
+
+        # Step 3: Choose from market (if not final turn)
+        if action.market_index is not None:
+            tile = self.market.choose_tile(action.market_index)
+            if tile:
+                self.player.add_tile(tile)
+                self.market.refill()
+                self._simulate_other_players()
+
+        # Step 4: End turn
+        self._end_turn()
+        return True
 
     def _simulate_other_players(self):
         """Simulate P2, P3, P4 discarding market tiles."""

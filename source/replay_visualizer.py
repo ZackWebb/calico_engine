@@ -573,7 +573,36 @@ class ReplayVisualizer:
 
         y += int(30 * self.scale)
 
-        if decision.action_type == "place_tile":
+        if decision.action_type == "place_and_choose":
+            # Combined action: show both placement and market choice
+            hand_tile = decision.hand_tiles[decision.action_hand_index]
+            text = f"Place {hand_tile.color} {hand_tile.pattern}"
+            surface = self.font.render(text, True, (0, 0, 0))
+            self.screen.blit(surface, (x, y))
+
+            y += int(22 * self.scale)
+            pos_display = rowcol_to_display(tuple(decision.action_position))
+            pos_text = f"at position {pos_display}"
+            pos_surface = self.font.render(pos_text, True, (80, 80, 80))
+            self.screen.blit(pos_surface, (x, y))
+
+            y += int(22 * self.scale)
+            if decision.action_market_index is not None:
+                market_tile = decision.market_tiles[decision.action_market_index]
+                market_text = f"+ Take {market_tile.color} {market_tile.pattern}"
+                market_surface = self.font.render(market_text, True, (0, 0, 0))
+                self.screen.blit(market_surface, (x, y))
+
+                y += int(22 * self.scale)
+                idx_text = f"from market position {decision.action_market_index + 1}"
+                idx_surface = self.font.render(idx_text, True, (80, 80, 80))
+                self.screen.blit(idx_surface, (x, y))
+            else:
+                final_text = "(Final turn - no market choice)"
+                final_surface = self.font.render(final_text, True, (100, 100, 100))
+                self.screen.blit(final_surface, (x, y))
+
+        elif decision.action_type == "place_tile":
             hand_tile = decision.hand_tiles[decision.action_hand_index]
             text = f"Place {hand_tile.color} {hand_tile.pattern}"
             surface = self.font.render(text, True, (0, 0, 0))
@@ -586,6 +615,7 @@ class ReplayVisualizer:
             pos_surface = self.font.render(pos_text, True, (80, 80, 80))
             self.screen.blit(pos_surface, (x, y))
         else:
+            # choose_market
             market_tile = decision.market_tiles[decision.action_market_index]
             text = f"Take {market_tile.color} {market_tile.pattern}"
             surface = self.font.render(text, True, (0, 0, 0))
@@ -622,7 +652,18 @@ class ReplayVisualizer:
                 marker = " "
                 color = (80, 80, 80)
 
-            if candidate.action_type == "place_tile":
+            if candidate.action_type == "place_and_choose":
+                # Combined action: show tile, position, and market choice
+                pos_display = rowcol_to_display(candidate.position)
+                hand_tile = decision.hand_tiles[candidate.hand_index]
+                tile_desc = f"{hand_tile.color} {hand_tile.pattern}"
+                if candidate.market_index is not None:
+                    market_tile = decision.market_tiles[candidate.market_index]
+                    market_short = f"+{market_tile.color[:3]}"
+                else:
+                    market_short = "(final)"
+                text = f"{marker} {i+1}. {tile_desc} @{pos_display} {market_short}"
+            elif candidate.action_type == "place_tile":
                 # Convert position to human-readable format
                 pos_display = rowcol_to_display(candidate.position)
                 # Show which tile from hand is being placed

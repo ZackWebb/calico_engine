@@ -35,10 +35,15 @@ class TestMCTSNode:
     def test_untried_actions_populated(self):
         """Untried actions should be populated from state."""
         game = SimulationMode(BOARD_1)
+        # Default is combined actions
         node = MCTSNode(state=game.copy())
-
-        expected_actions = game.get_legal_actions()
+        expected_actions = game.get_combined_legal_actions()
         assert len(node.untried_actions) == len(expected_actions)
+
+        # Test with separate actions
+        node_separate = MCTSNode(state=game.copy(), use_combined_actions=False)
+        expected_separate = game.get_legal_actions()
+        assert len(node_separate.untried_actions) == len(expected_separate)
 
     def test_is_terminal_false_at_start(self):
         """New game should not be terminal."""
@@ -153,19 +158,38 @@ class TestMCTSAgent:
     def test_select_action_returns_valid_action(self):
         """Agent should return a valid legal action."""
         game = SimulationMode(BOARD_1)
+        # Default is combined actions
         agent = MCTSAgent(max_iterations=50)
-
         action = agent.select_action(game)
-
-        legal_actions = game.get_legal_actions()
+        legal_actions = game.get_combined_legal_actions()
         assert action in legal_actions
 
+        # Test with separate actions
+        agent_separate = MCTSAgent(max_iterations=50, use_combined_actions=False)
+        action_separate = agent_separate.select_action(game)
+        legal_separate = game.get_legal_actions()
+        assert action_separate in legal_separate
+
     def test_select_action_in_place_phase(self):
-        """Action should be place_tile in place phase."""
+        """Action should be place_and_choose in place phase (default combined mode)."""
         game = SimulationMode(BOARD_1)
         assert game.turn_phase == TurnPhase.PLACE_TILE
 
         agent = MCTSAgent(max_iterations=50)
+        action = agent.select_action(game)
+
+        assert action.action_type == "place_and_choose"
+        assert action.position is not None
+        assert action.hand_index is not None
+        # market_index can be None for final turn, but not at start
+        assert action.market_index is not None
+
+    def test_select_action_in_place_phase_separate(self):
+        """Action should be place_tile in place phase with separate actions."""
+        game = SimulationMode(BOARD_1)
+        assert game.turn_phase == TurnPhase.PLACE_TILE
+
+        agent = MCTSAgent(max_iterations=50, use_combined_actions=False)
         action = agent.select_action(game)
 
         assert action.action_type == "place_tile"
@@ -173,7 +197,7 @@ class TestMCTSAgent:
         assert action.hand_index is not None
 
     def test_select_action_in_market_phase(self):
-        """Action should be choose_market in market phase."""
+        """Action should be choose_market in market phase (separate actions mode)."""
         game = SimulationMode(BOARD_1)
 
         # Move to market phase
@@ -181,7 +205,8 @@ class TestMCTSAgent:
         game.apply_action(actions[0])
         assert game.turn_phase == TurnPhase.CHOOSE_MARKET
 
-        agent = MCTSAgent(max_iterations=50)
+        # Must use separate actions to be in market phase
+        agent = MCTSAgent(max_iterations=50, use_combined_actions=False)
         action = agent.select_action(game)
 
         assert action.action_type == "choose_market"
