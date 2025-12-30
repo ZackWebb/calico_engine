@@ -625,7 +625,10 @@ class ReplayVisualizer:
             if candidate.action_type == "place_tile":
                 # Convert position to human-readable format
                 pos_display = rowcol_to_display(candidate.position)
-                text = f"{marker} {i+1}. place at {pos_display}"
+                # Show which tile from hand is being placed
+                hand_tile = decision.hand_tiles[candidate.hand_index]
+                tile_desc = f"{hand_tile.color} {hand_tile.pattern}"
+                text = f"{marker} {i+1}. {tile_desc} at {pos_display}"
             else:
                 text = f"{marker} {i+1}. market[{candidate.market_index + 1}]"
 
@@ -635,7 +638,7 @@ class ReplayVisualizer:
             # Stats on same line
             stats_text = f"visits={candidate.visits}, avg={candidate.avg_score:.1f}"
             stats_surface = self.small_font.render(stats_text, True, (120, 120, 120))
-            self.screen.blit(stats_surface, (x + int(180 * self.scale), y + int(3 * self.scale)))
+            self.screen.blit(stats_surface, (x + int(260 * self.scale), y + int(3 * self.scale)))
 
             y += int(22 * self.scale)
 
