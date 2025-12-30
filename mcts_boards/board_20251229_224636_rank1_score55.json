@@ -1,0 +1,265 @@
+{
+  "total_score": 55,
+  "cat_scores": {
+    "Leo": 0,
+    "Millie": 6,
+    "Rumi": 10
+  },
+  "goal_scores": {
+    "AAA-BBB": 0,
+    "AA-BB-CC": 7,
+    "All Unique": 0
+  },
+  "button_info": {
+    "total_buttons": 9,
+    "button_score": 27,
+    "has_rainbow": true,
+    "rainbow_score": 5,
+    "buttons_by_color": {
+      "PINK": 2,
+      "BLUE": 1,
+      "GREEN": 2,
+      "YELLOW": 2,
+      "PURPLE": 1,
+      "TEAL": 1
+    }
+  },
+  "board_tiles": {
+    "-3,0,3": {
+      "color": "PINK",
+      "pattern": "FLOWERS"
+    },
+    "-3,1,2": {
+      "color": "YELLOW",
+      "pattern": "CLUBS"
+    },
+    "-3,2,1": {
+      "color": "TEAL",
+      "pattern": "CLUBS"
+    },
+    "-3,3,0": {
+      "color": "TEAL",
+      "pattern": "LEAVES"
+    },
+    "-2,-1,3": {
+      "color": "BLUE",
+      "pattern": "LEAVES"
+    },
+    "-2,0,2": {
+      "color": "TEAL",
+      "pattern": "DOTS"
+    },
+    "-2,2,0": {
+      "color": "TEAL",
+      "pattern": "STRIPES"
+    },
+    "-2,3,-1": {
+      "color": "YELLOW",
+      "pattern": "LEAVES"
+    },
+    "-1,-2,3": {
+      "color": "GREEN",
+      "pattern": "SWIRLS"
+    },
+    "-1,-1,2": {
+      "color": "BLUE",
+      "pattern": "CLUBS"
+    },
+    "-1,0,1": {
+      "color": "BLUE",
+      "pattern": "DOTS"
+    },
+    "-1,1,0": {
+      "color": "PURPLE",
+      "pattern": "DOTS"
+    },
+    "-1,2,-1": {
+      "color": "PURPLE",
+      "pattern": "STRIPES"
+    },
+    "-1,3,-2": {
+      "color": "YELLOW",
+      "pattern": "SWIRLS"
+    },
+    "0,-3,3": {
+      "color": "PINK",
+      "pattern": "DOTS"
+    },
+    "0,-2,2": {
+      "color": "PINK",
+      "pattern": "SWIRLS"
+    },
+    "0,-1,1": {
+      "color": "PINK",
+      "pattern": "CLUBS"
+    },
+    "0,0,0": {
+      "color": "GREEN",
+      "pattern": "SWIRLS"
+    },
+    "0,2,-2": {
+      "color": "PURPLE",
+      "pattern": "SWIRLS"
+    },
+    "0,3,-3": {
+      "color": "TEAL",
+      "pattern": "SWIRLS"
+    },
+    "1,-3,2": {
+      "color": "GREEN",
+      "pattern": "DOTS"
+    },
+    "1,-2,1": {
+      "color": "GREEN",
+      "pattern": "CLUBS"
+    },
+    "1,0,-1": {
+      "color": "PINK",
+      "pattern": "FLOWERS"
+    },
+    "1,1,-2": {
+      "color": "PINK",
+      "pattern": "SWIRLS"
+    },
+    "1,2,-3": {
+      "color": "PINK",
+      "pattern": "LEAVES"
+    },
+    "2,-3,1": {
+      "color": "GREEN",
+      "pattern": "CLUBS"
+    },
+    "2,-2,0": {
+      "color": "YELLOW",
+      "pattern": "SWIRLS"
+    },
+    "2,-1,-1": {
+      "color": "YELLOW",
+      "pattern": "LEAVES"
+    },
+    "2,0,-2": {
+      "color": "GREEN",
+      "pattern": "STRIPES"
+    },
+    "2,1,-3": {
+      "color": "PURPLE",
+      "pattern": "CLUBS"
+    },
+    "3,-3,0": {
+      "color": "YELLOW",
+      "pattern": "LEAVES"
+    },
+    "3,-2,-1": {
+      "color": "PURPLE",
+      "pattern": "SWIRLS"
+    },
+    "3,-1,-2": {
+      "color": "GREEN",
+      "pattern": "SWIRLS"
+    },
+    "3,0,-3": {
+      "color": "YELLOW",
+      "pattern": "FLOWERS"
+    },
+    "-1,4,-3": {
+      "color": "YELLOW",
+      "pattern": "STRIPES"
+    },
+    "-2,4,-2": {
+      "color": "GREEN",
+      "pattern": "LEAVES"
+    },
+    "-3,4,-1": {
+      "color": "BLUE",
+      "pattern": "CLUBS"
+    },
+    "4,-1,-3": {
+      "color": "GREEN",
+      "pattern": "STRIPES"
+    },
+    "4,-2,-2": {
+      "color": "BLUE",
+      "pattern": "DOTS"
+    },
+    "-4,3,1": {
+      "color": "PURPLE",
+      "pattern": "STRIPES"
+    },
+    "-4,2,2": {
+      "color": "YELLOW",
+      "pattern": "DOTS"
+    },
+    "-4,1,3": {
+      "color": "TEAL",
+      "pattern": "CLUBS"
+    },
+    "2,-4,2": {
+      "color": "BLUE",
+      "pattern": "FLOWERS"
+    },
+    "1,-4,3": {
+      "color": "TEAL",
+      "pattern": "STRIPES"
+    }
+  },
+  "cats": [
+    {
+      "name": "Leo",
+      "point_value": 11,
+      "patterns": [
+        "FLOWERS",
+        "STRIPES"
+      ],
+      "score": 0
+    },
+    {
+      "name": "Millie",
+      "point_value": 3,
+      "patterns": [
+        "DOTS",
+        "LEAVES"
+      ],
+      "score": 6
+    },
+    {
+      "name": "Rumi",
+      "point_value": 5,
+      "patterns": [
+        "SWIRLS",
+        "CLUBS"
+      ],
+      "score": 10
+    }
+  ],
+  "goals": [
+    {
+      "name": "AAA-BBB",
+      "position": [
+        -2,
+        1,
+        1
+      ],
+      "score": 0
+    },
+    {
+      "name": "AA-BB-CC",
+      "position": [
+        1,
+        -1,
+        0
+      ],
+      "score": 7
+    },
+    {
+      "name": "All Unique",
+      "position": [
+        0,
+        1,
+        -1
+      ],
+      "score": 0
+    }
+  ],
+  "rank": 1,
+  "timestamp": "20251229_224636"
+}
