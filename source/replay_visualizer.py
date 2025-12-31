@@ -19,12 +19,32 @@ BASE_HEX_RADIUS = 30
 
 # Base UI Layout positions (at scale 1.0)
 BASE_BOARD_CENTER = (350, 350)
-BASE_HAND_POSITION = (750, 550)
-BASE_MARKET_POSITION = (700, 50)
-BASE_GOAL_INFO_POSITION = (1110, 30)  # Moved 150px right
+BASE_HAND_POSITION = (670, 550)  # Moved 80px left
+BASE_MARKET_POSITION = (620, 50)  # Moved 80px left
+BASE_GOAL_INFO_POSITION = (1110, 30)
 BASE_STATUS_POSITION = (50, 650)
-BASE_CATS_POSITION = (1110, 120)  # Moved 150px right
-BASE_CANDIDATES_POSITION = (700, 380)  # Position for candidate moves display
+BASE_CATS_POSITION = (1110, 120)
+BASE_CANDIDATES_POSITION = (620, 380)  # Moved 80px left
+BASE_ACTION_INFO_POSITION = (620, 150)  # Moved 80px left
+
+# Unique abbreviations for colors and patterns
+COLOR_ABBREV = {
+    "BLUE": "Bl",
+    "GREEN": "Gr",
+    "YELLOW": "Yl",
+    "PINK": "Pk",
+    "PURPLE": "Pr",
+    "CYAN": "Cy",
+}
+
+PATTERN_ABBREV = {
+    "DOTS": "Dt",
+    "LEAVES": "Lv",
+    "FLOWERS": "Fl",
+    "CLUBS": "Cb",
+    "STRIPES": "St",
+    "SWIRLS": "Sw",
+}
 
 
 def cube_to_rowcol(q: int, r: int, s: int) -> str:
@@ -204,6 +224,8 @@ class ReplayVisualizer:
                                    int(BASE_GOAL_INFO_POSITION[1] * self.scale))
         self.candidates_position = (int(BASE_CANDIDATES_POSITION[0] * self.scale),
                                     int(BASE_CANDIDATES_POSITION[1] * self.scale))
+        self.action_info_position = (int(BASE_ACTION_INFO_POSITION[0] * self.scale),
+                                     int(BASE_ACTION_INFO_POSITION[1] * self.scale))
 
         # Scaled fonts
         self.font = pygame.font.Font(None, max(16, int(24 * self.scale)))
@@ -425,8 +447,8 @@ class ReplayVisualizer:
                 # Draw empty hex
                 color = (180, 180, 180)
                 fill_color = None
-                # Highlight the action position if it's a place_tile action
-                if (decision.action_type == "place_tile" and
+                # Highlight the action position for place_tile or place_and_choose actions
+                if (decision.action_type in ("place_tile", "place_and_choose") and
                     decision.action_position and
                     tuple(decision.action_position) == hex_coord):
                     color = (100, 200, 100)  # Green highlight
@@ -512,8 +534,8 @@ class ReplayVisualizer:
         label = self.font.render("Hand:", True, (0, 0, 0))
         self.screen.blit(label, (base_x, base_y - int(25 * self.scale)))
 
-        # Highlight if this is a place_tile decision
-        if decision.phase == "PLACE_TILE":
+        # Highlight if this is a place_tile or place_and_choose decision
+        if decision.phase in ("PLACE_TILE", "PLACE_AND_CHOOSE"):
             rect_width = len(decision.hand_tiles) * (self.tile_size + spacing) + int(10 * self.scale)
             rect_height = self.tile_size + int(40 * self.scale)
             pygame.draw.rect(self.screen, (200, 230, 200),
@@ -526,8 +548,8 @@ class ReplayVisualizer:
             if tile_key in self.tile_images:
                 self.screen.blit(self.tile_images[tile_key], (x, base_y))
 
-            # Highlight selected tile for place_tile actions
-            if decision.action_type == "place_tile" and decision.action_hand_index == i:
+            # Highlight selected tile for place_tile or place_and_choose actions
+            if decision.action_type in ("place_tile", "place_and_choose") and decision.action_hand_index == i:
                 border = int(3 * self.scale)
                 pygame.draw.rect(self.screen, (0, 200, 0),
                                (x - border, base_y - border,
@@ -541,8 +563,12 @@ class ReplayVisualizer:
         label = self.font.render("Market:", True, (0, 0, 0))
         self.screen.blit(label, (base_x, base_y - int(25 * self.scale)))
 
-        # Highlight if this is a choose_market decision
-        if decision.phase == "CHOOSE_MARKET":
+        # Highlight if this is a choose_market or place_and_choose decision (with market choice)
+        should_highlight = (
+            decision.phase == "CHOOSE_MARKET" or
+            (decision.phase == "PLACE_AND_CHOOSE" and decision.action_market_index is not None)
+        )
+        if should_highlight:
             rect_width = len(decision.market_tiles) * (self.tile_size + spacing) + int(10 * self.scale)
             rect_height = self.tile_size + int(40 * self.scale)
             pygame.draw.rect(self.screen, (200, 230, 200),
@@ -555,8 +581,12 @@ class ReplayVisualizer:
             if tile_key in self.tile_images:
                 self.screen.blit(self.tile_images[tile_key], (x, base_y))
 
-            # Highlight selected market tile for choose_market actions
-            if decision.action_type == "choose_market" and decision.action_market_index == i:
+            # Highlight selected market tile for choose_market or place_and_choose actions
+            is_selected = (
+                (decision.action_type == "choose_market" and decision.action_market_index == i) or
+                (decision.action_type == "place_and_choose" and decision.action_market_index == i)
+            )
+            if is_selected:
                 border = int(3 * self.scale)
                 pygame.draw.rect(self.screen, (0, 200, 0),
                                (x - border, base_y - border,
@@ -564,8 +594,7 @@ class ReplayVisualizer:
 
     def _draw_action_info(self, decision: DecisionRecord):
         """Draw info about the action taken."""
-        x = int(700 * self.scale)
-        y = int(150 * self.scale)
+        x, y = self.action_info_position
 
         # Action header
         label = self.large_font.render("Action Taken:", True, (0, 100, 0))
@@ -626,6 +655,12 @@ class ReplayVisualizer:
             idx_surface = self.font.render(idx_text, True, (80, 80, 80))
             self.screen.blit(idx_surface, (x, y))
 
+    def _tile_abbrev(self, tile_record: TileRecord) -> str:
+        """Get abbreviated tile description using unique abbreviations."""
+        color_abbr = COLOR_ABBREV.get(tile_record.color, tile_record.color[:2])
+        pattern_abbr = PATTERN_ABBREV.get(tile_record.pattern, tile_record.pattern[:2])
+        return f"{color_abbr}{pattern_abbr}"
+
     def _draw_candidates(self, decision: DecisionRecord):
         """Draw MCTS candidate moves."""
         x, y = self.candidates_position
@@ -653,35 +688,43 @@ class ReplayVisualizer:
                 color = (80, 80, 80)
 
             if candidate.action_type == "place_and_choose":
-                # Combined action: show tile, position, and market choice
+                # Combined action: show tile, position, and market choice with abbreviations
                 pos_display = rowcol_to_display(candidate.position)
                 hand_tile = decision.hand_tiles[candidate.hand_index]
-                tile_desc = f"{hand_tile.color} {hand_tile.pattern}"
+                tile_abbr = self._tile_abbrev(hand_tile)
                 if candidate.market_index is not None:
                     market_tile = decision.market_tiles[candidate.market_index]
-                    market_short = f"+{market_tile.color[:3]}"
+                    market_abbr = self._tile_abbrev(market_tile)
+                    text = f"{marker}{i+1}. {tile_abbr}@{pos_display} +{market_abbr}"
                 else:
-                    market_short = "(final)"
-                text = f"{marker} {i+1}. {tile_desc} @{pos_display} {market_short}"
+                    text = f"{marker}{i+1}. {tile_abbr}@{pos_display} (final)"
             elif candidate.action_type == "place_tile":
                 # Convert position to human-readable format
                 pos_display = rowcol_to_display(candidate.position)
                 # Show which tile from hand is being placed
                 hand_tile = decision.hand_tiles[candidate.hand_index]
-                tile_desc = f"{hand_tile.color} {hand_tile.pattern}"
-                text = f"{marker} {i+1}. {tile_desc} at {pos_display}"
+                tile_abbr = self._tile_abbrev(hand_tile)
+                text = f"{marker}{i+1}. {tile_abbr}@{pos_display}"
             else:
-                text = f"{marker} {i+1}. market[{candidate.market_index + 1}]"
+                market_tile = decision.market_tiles[candidate.market_index]
+                market_abbr = self._tile_abbrev(market_tile)
+                text = f"{marker}{i+1}. take {market_abbr}"
 
             text_surface = self.font.render(text, True, color)
             self.screen.blit(text_surface, (x, y))
 
-            # Stats on same line
-            stats_text = f"visits={candidate.visits}, avg={candidate.avg_score:.1f}"
+            # Stats - position adjusted for new layout
+            stats_text = f"v={candidate.visits} avg={candidate.avg_score:.1f}"
             stats_surface = self.small_font.render(stats_text, True, (120, 120, 120))
-            self.screen.blit(stats_surface, (x + int(260 * self.scale), y + int(3 * self.scale)))
+            self.screen.blit(stats_surface, (x + int(200 * self.scale), y + int(3 * self.scale)))
 
             y += int(22 * self.scale)
+
+        # Add abbreviation legend below candidates
+        y += int(10 * self.scale)
+        legend_text = "Colors: Bl Gr Yl Pk Pr Cy | Patterns: Dt Lv Fl Cb St Sw"
+        legend_surface = self.small_font.render(legend_text, True, (140, 140, 140))
+        self.screen.blit(legend_surface, (x, y))
 
     def _draw_goal_info(self):
         """Draw goal tile scoring info."""
@@ -691,7 +734,7 @@ class ReplayVisualizer:
         self.screen.blit(goal_label, (x, y))
 
         goal_info = [
-            ("3-3", "7/13"),
+            ("3-3", "8/13"),
             ("2-2-2", "7/11"),
             ("Unique", "10/15"),
         ]

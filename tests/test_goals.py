@@ -26,23 +26,23 @@ class TestGoalAAA_BBB:
             self.grid.set_tile(*pos, Tile(Color.BLUE, Pattern.DOTS))
         assert self.goal.score(self.grid) == 0
 
-    def test_color_3_3_scores_7(self):
+    def test_color_3_3_scores_8(self):
         # 3 blue, 3 pink - satisfies color condition only
         neighbors = self.get_neighbor_positions()
         for i, pos in enumerate(neighbors):
             color = Color.BLUE if i < 3 else Color.PINK
             pattern = Pattern(i + 1)  # All different patterns
             self.grid.set_tile(*pos, Tile(color, pattern))
-        assert self.goal.score(self.grid) == 7
+        assert self.goal.score(self.grid) == 8
 
-    def test_pattern_3_3_scores_7(self):
+    def test_pattern_3_3_scores_8(self):
         # All different colors, but 3 dots and 3 leaves
         neighbors = self.get_neighbor_positions()
         colors = list(Color)[:6]
         for i, pos in enumerate(neighbors):
             pattern = Pattern.DOTS if i < 3 else Pattern.LEAVES
             self.grid.set_tile(*pos, Tile(colors[i], pattern))
-        assert self.goal.score(self.grid) == 7
+        assert self.goal.score(self.grid) == 8
 
     def test_both_conditions_scores_13(self):
         # 3 blue dots, 3 pink leaves

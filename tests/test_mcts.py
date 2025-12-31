@@ -14,7 +14,7 @@ from game_state import Action, TurnPhase
 from mcts_agent import MCTSNode, MCTSAgent
 from heuristic import (
     evaluate_state, evaluate_cats, evaluate_goals, evaluate_buttons,
-    find_pattern_cluster_sizes, find_line_lengths
+    enumerate_all_5_lines, enumerate_all_3_lines
 )
 
 
@@ -315,26 +315,27 @@ class TestHeuristic:
 class TestHeuristicHelpers:
     """Tests for heuristic helper functions."""
 
-    def test_find_pattern_cluster_sizes_empty_grid(self):
-        """Empty grid should have no clusters."""
+    def test_enumerate_all_5_lines_returns_list(self):
+        """Should return list of 5-position lines."""
         game = SimulationMode(BOARD_1)
-        # The board has edge tiles, but check a pattern that may not exist
-        from hex_grid import Pattern
 
-        # Just verify it returns a list
-        sizes = find_pattern_cluster_sizes(game.player.grid, Pattern.DOTS)
-        assert isinstance(sizes, list)
+        lines = enumerate_all_5_lines(game.player.grid)
+        assert isinstance(lines, list)
+        assert len(lines) > 0
+        # All lines should have exactly 5 positions
+        for line in lines:
+            assert len(line) == 5
 
-    def test_find_line_lengths_returns_list(self):
-        """Should return list of line lengths."""
+    def test_enumerate_all_3_lines_returns_list(self):
+        """Should return list of 3-position lines."""
         game = SimulationMode(BOARD_1)
-        from hex_grid import Pattern
 
-        lengths = find_line_lengths(game.player.grid, Pattern.LEAVES)
-        assert isinstance(lengths, list)
-        # All lengths should be >= 2
-        for length in lengths:
-            assert length >= 2
+        lines = enumerate_all_3_lines(game.player.grid)
+        assert isinstance(lines, list)
+        assert len(lines) > 0
+        # All lines should have exactly 3 positions
+        for line in lines:
+            assert len(line) == 3
 
 
 class TestRollout:

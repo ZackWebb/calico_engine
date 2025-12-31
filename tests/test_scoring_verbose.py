@@ -138,8 +138,8 @@ class TestVerboseScoring:
 
         print_neighbors_for_goal(grid, goal)
         score = goal.score(grid)
-        print(f"    SCORE: {score} (expected: 7 - color only)")
-        assert score == 7
+        print(f"    SCORE: {score} (expected: 8 - color only)")
+        assert score == 8
 
     def test_goal_aa_bb_cc_manual_setup(self):
         """Test AA-BB-CC goal with manually constructed board."""

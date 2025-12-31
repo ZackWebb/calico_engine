@@ -530,7 +530,7 @@ class PlayModeVisualizer:
         self.screen.blit(goal_label, (x, y))
 
         goal_info = [
-            ("3-3", "7/13"),
+            ("3-3", "8/13"),
             ("2-2-2", "7/11"),
             ("Unique", "10/15"),
         ]

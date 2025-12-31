@@ -372,6 +372,98 @@ def test(
 
 
 @app.command()
+def benchmark(
+    n_games: int = typer.Option(10, "--games", "-n", help="Number of games to run"),
+    iterations: int = typer.Option(1000, "--iterations", "-i", help="MCTS iterations per move"),
+    exploration: float = typer.Option(1.4, "--exploration", "-e", help="UCB1 exploration constant"),
+    threshold: int = typer.Option(5, "--threshold", "-t", help="Late game threshold"),
+    tag: Optional[str] = typer.Option(None, "--tag", help="Tag for this experiment run"),
+    experiment: str = typer.Option("calico-mcts", "--experiment", help="MLflow experiment name"),
+    run_name: Optional[str] = typer.Option(None, "--run-name", help="Name for this MLflow run"),
+    sweep: bool = typer.Option(False, "--sweep", help="Run parameter sweep across iterations"),
+    no_heuristic: bool = typer.Option(False, "--no-heuristic", help="Disable heuristic"),
+    deterministic: bool = typer.Option(False, "--deterministic", help="Use deterministic rollouts"),
+    separate: bool = typer.Option(False, "--separate", help="Use separate actions"),
+    no_mlflow: bool = typer.Option(False, "--no-mlflow", help="Skip MLflow logging"),
+    no_record: bool = typer.Option(False, "--no-record", help="Disable game recording (default: enabled)"),
+    seeds: Optional[str] = typer.Option(None, "--seeds", help="Seeds for reproducibility: '0-9', 'fixed', or '0,5,10'"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+):
+    """
+    Run benchmarks with MLflow experiment tracking.
+
+    Logs hyperparameters, metrics, and git info to MLflow.
+    View results with: mlflow ui
+
+    Examples:
+        python cli.py benchmark -n 20 -i 1000
+        python cli.py benchmark --tag "improved_heuristic"
+        python cli.py benchmark --sweep
+        python cli.py benchmark --seeds 0-9  # Reproducible comparison
+    """
+    import subprocess
+    import sys
+
+    cmd = [sys.executable, "benchmark.py"]
+    cmd.extend(["-n", str(n_games)])
+    cmd.extend(["-i", str(iterations)])
+    cmd.extend(["-e", str(exploration)])
+    cmd.extend(["-t", str(threshold)])
+
+    if tag:
+        cmd.extend(["--tag", tag])
+    if experiment != "calico-mcts":
+        cmd.extend(["--experiment", experiment])
+    if run_name:
+        cmd.extend(["--run-name", run_name])
+    if sweep:
+        cmd.append("--sweep")
+    if no_heuristic:
+        cmd.append("--no-heuristic")
+    if deterministic:
+        cmd.append("--deterministic")
+    if separate:
+        cmd.append("--separate")
+    if no_mlflow:
+        cmd.append("--no-mlflow")
+    if no_record:
+        cmd.append("--no-record")
+    if seeds:
+        cmd.extend(["--seeds", seeds])
+    if verbose:
+        cmd.append("-v")
+
+    result = subprocess.run(cmd, cwd=Path(__file__).parent)
+    raise typer.Exit(result.returncode)
+
+
+@app.command()
+def mlflow_ui():
+    """
+    Start the MLflow UI to view experiment results.
+
+    Opens at http://localhost:5000
+    """
+    import subprocess
+    import sys
+
+    project_root = Path(__file__).parent.parent
+    db_path = project_root / "mlflow.db"
+
+    typer.echo("Starting MLflow UI at http://localhost:5000")
+    typer.echo(f"Database: {db_path}")
+    typer.echo("Press Ctrl+C to stop")
+
+    tracking_uri = f"sqlite:///{db_path.as_posix()}"
+    result = subprocess.run(
+        [sys.executable, "-m", "mlflow", "ui",
+         "--backend-store-uri", tracking_uri],
+        cwd=project_root
+    )
+    raise typer.Exit(result.returncode)
+
+
+@app.command()
 def info():
     """
     Display information about the project and available commands.
@@ -387,13 +479,15 @@ def info():
     typer.echo("  mcts      - Run MCTS agent (single game or baseline comparison)")
     typer.echo("  replay    - Step through recorded games")
     typer.echo("  simulate  - Quick random simulations")
+    typer.echo("  benchmark - Run experiments with MLflow tracking")
+    typer.echo("  mlflow-ui - Start MLflow UI to view results")
     typer.echo("  test      - Run test suite")
     typer.echo()
     typer.echo("Quick Start:")
     typer.echo("  python cli.py play                    # Play interactively")
     typer.echo("  python cli.py mcts --record           # Run MCTS with recording")
     typer.echo("  python cli.py replay --latest         # Replay last game")
-    typer.echo("  python cli.py mcts -b 10 -i 500       # Benchmark 10 games")
+    typer.echo("  python cli.py benchmark -n 10 --tag v1  # Benchmark with MLflow")
     typer.echo()
     typer.echo("For help on any command: python cli.py <command> --help")
 

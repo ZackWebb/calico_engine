@@ -38,7 +38,7 @@ class GoalAAA_BBB(GoalTile):
     """
     AAA-BBB goal: 6 neighbors must have 3 of color A and 3 of color B,
     OR 3 of pattern A and 3 of pattern B.
-    - 7 points for either condition
+    - 8 points for either condition
     - 13 points if BOTH conditions met
     """
 
@@ -58,7 +58,7 @@ class GoalAAA_BBB(GoalTile):
         if color_met and pattern_met:
             return 13
         elif color_met or pattern_met:
-            return 7
+            return 8
         return 0
 
     def _check_3_3_condition(self, values: list) -> bool:
