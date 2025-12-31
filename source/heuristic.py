@@ -353,9 +353,14 @@ def estimate_goal_potential(grid: HexGrid, goal) -> float:
     """
     Estimate potential for a goal based on filled neighbors.
 
-    Awards partial credit scaled by:
-    - Number of neighbors filled (out of 6)
-    - Whether current distribution is compatible with goal
+    Uses weighted combination scoring:
+    - single_potential = single_max * max(color_progress, pattern_progress)
+    - double_potential = double_max * min(color_progress, pattern_progress)
+    - Returns max of the two, scaled by completion ratio
+
+    This naturally handles impossibility:
+    - If color becomes impossible (progress=0), double_potential=0, falls back to single
+    - If both impossible, both potentials=0
     """
     tiles = goal.get_neighbor_tiles(grid)
     filled_count = len(tiles)
@@ -366,28 +371,38 @@ def estimate_goal_potential(grid: HexGrid, goal) -> float:
     # Completion ratio
     completion_ratio = filled_count / 6.0
 
-    # Check partial pattern match based on goal type
+    # Get goal-specific point values and progress functions
     goal_name = goal.name
-    progress = 0.0
 
     if goal_name == "AAA-BBB":
-        # Need 3-3 distribution
-        max_points = 8.0
-        progress = check_3_3_progress(tiles)
+        single_max = 8.0
+        double_max = 13.0
+        color_progress = _check_3_3_for_values([t.color for t in tiles])
+        pattern_progress = _check_3_3_for_values([t.pattern for t in tiles])
     elif goal_name == "AA-BB-CC":
-        # Need 2-2-2 distribution
-        max_points = 7.0
-        progress = check_2_2_2_progress(tiles)
+        single_max = 7.0
+        double_max = 11.0
+        color_progress = _check_2_2_2_for_values([t.color for t in tiles])
+        pattern_progress = _check_2_2_2_for_values([t.pattern for t in tiles])
     elif goal_name == "All Unique":
-        # Need all different
-        max_points = 10.0
-        progress = check_unique_progress(tiles)
+        single_max = 10.0
+        double_max = 15.0
+        color_progress = _check_unique_for_values([t.color for t in tiles])
+        pattern_progress = _check_unique_for_values([t.pattern for t in tiles])
     else:
         return 0.0
 
-    # Scale by progress, completion ratio, and discount factor
+    # Weighted combination: use max() for single, min() for double
+    # This naturally bounds to single_max when one track becomes impossible
+    single_potential = single_max * max(color_progress, pattern_progress)
+    double_potential = double_max * min(color_progress, pattern_progress)
+
+    # Take the better of the two strategies
+    best_potential = max(single_potential, double_potential)
+
+    # Scale by completion ratio and discount factor
     discount = 0.4  # Don't overvalue incomplete goals
-    return max_points * progress * completion_ratio * discount
+    return best_potential * completion_ratio * discount
 
 
 def check_3_3_progress(tiles) -> float:
@@ -406,28 +421,43 @@ def check_3_3_progress(tiles) -> float:
 
 
 def _check_3_3_for_values(values) -> float:
-    """Check 3-3 progress for a list of values."""
+    """
+    Check 3-3 progress for a list of values.
+
+    Returns 0.0 when goal becomes impossible:
+    - More than 2 distinct values (can't achieve 3-3)
+    - Any single value has count > 3 (would exceed 3)
+    """
     counts = Counter(values)
     sorted_counts = sorted(counts.values(), reverse=True)
+    num_types = len(sorted_counts)
 
-    # Perfect would be [3, 3] for 6 tiles
-    # For fewer tiles, check if trending toward 3-3
-    if len(sorted_counts) == 0:
+    if num_types == 0:
         return 0.0
-    elif len(sorted_counts) == 1:
-        # All same - bad for 3-3
-        return 0.2
-    elif len(sorted_counts) == 2:
-        # Two types - good!
-        # Best is equal split
-        diff = abs(sorted_counts[0] - sorted_counts[1])
-        if diff <= 1:
-            return 0.8
-        else:
-            return 0.5
-    else:
-        # More than 2 types - getting worse
+
+    # IMPOSSIBLE: More than 2 types - can never achieve 3-3
+    if num_types > 2:
+        return 0.0
+
+    # IMPOSSIBLE: Any type has more than 3 - can never achieve 3-3
+    if sorted_counts[0] > 3:
+        return 0.0
+
+    # Perfect 3-3 achieved
+    if sorted_counts == [3, 3]:
+        return 1.0
+
+    # One type so far - still possible, modest progress
+    if num_types == 1:
+        # 1, 2, or 3 of one type - needs the second type to appear
         return 0.3
+
+    # Two types - good! Check balance
+    diff = abs(sorted_counts[0] - sorted_counts[1])
+    if diff <= 1:
+        return 0.8  # Well balanced
+    else:
+        return 0.5  # Imbalanced but recoverable
 
 
 def check_2_2_2_progress(tiles) -> float:
@@ -445,31 +475,46 @@ def check_2_2_2_progress(tiles) -> float:
 
 
 def _check_2_2_2_for_values(values) -> float:
-    """Check 2-2-2 progress for a list of values."""
+    """
+    Check 2-2-2 progress for a list of values.
+
+    Returns 0.0 when goal becomes impossible:
+    - More than 3 distinct values (can't achieve 2-2-2)
+    - Any single value has count > 2 (would exceed 2)
+    """
     counts = Counter(values)
     sorted_counts = sorted(counts.values(), reverse=True)
+    num_types = len(sorted_counts)
 
-    # Perfect would be [2, 2, 2] for 6 tiles
-    if len(sorted_counts) == 0:
+    if num_types == 0:
         return 0.0
-    elif len(sorted_counts) == 1:
-        # All same - bad
-        return 0.1
-    elif len(sorted_counts) == 2:
-        # Two types - okay
-        return 0.4
-    elif len(sorted_counts) == 3:
-        # Three types - good!
-        # Check if counts are balanced
-        if sorted_counts == [2, 2, 2]:
-            return 1.0
-        elif max(sorted_counts) <= 3:
-            return 0.7
-        else:
-            return 0.5
+
+    # IMPOSSIBLE: More than 3 types - can never achieve 2-2-2
+    if num_types > 3:
+        return 0.0
+
+    # IMPOSSIBLE: Any type has more than 2 - can never achieve 2-2-2
+    if sorted_counts[0] > 2:
+        return 0.0
+
+    # Perfect 2-2-2 achieved
+    if sorted_counts == [2, 2, 2]:
+        return 1.0
+
+    # Check progress based on how many types we have
+    if num_types == 1:
+        # 1 or 2 of one type - need more diversity
+        return 0.2
+    elif num_types == 2:
+        # Two types with counts <= 2 each - okay progress
+        return 0.5
     else:
-        # More than 3 types - getting harder
-        return 0.3
+        # Three types, all <= 2 - good progress!
+        # Check balance
+        if sorted_counts[0] == sorted_counts[1] == sorted_counts[2]:
+            return 0.9  # Perfectly balanced
+        else:
+            return 0.7  # Slightly imbalanced
 
 
 def check_unique_progress(tiles) -> float:
@@ -487,19 +532,25 @@ def check_unique_progress(tiles) -> float:
 
 
 def _check_unique_for_values(values) -> float:
-    """Check uniqueness progress for a list of values."""
+    """
+    Check uniqueness progress for a list of values.
+
+    Returns 0.0 when goal becomes impossible:
+    - Any duplicate value means we can never have 6 unique
+    """
     if not values:
         return 0.0
 
     unique_count = len(set(values))
     total_count = len(values)
 
-    # All unique is perfect
-    if unique_count == total_count:
-        return 1.0
-    else:
-        # Some duplicates - progress based on ratio
-        return unique_count / total_count
+    # IMPOSSIBLE: Any duplicates mean we can't achieve all-unique
+    if unique_count < total_count:
+        return 0.0
+
+    # All unique so far - progress based on how many we have
+    # 6/6 unique = 1.0, 5/6 = 0.83, 4/6 = 0.67, etc.
+    return unique_count / 6.0
 
 
 def evaluate_buttons(grid: HexGrid) -> float:

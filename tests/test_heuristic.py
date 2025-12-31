@@ -28,7 +28,9 @@ from heuristic import (
     evaluate_rumi_potential,
     evaluate_millie_potential,
     estimate_cat_potential,
+    estimate_goal_potential,
 )
+from goal import GoalAAA_BBB, GoalAA_BB_CC, GoalAllUnique
 import heuristic as heuristic_module
 
 
@@ -433,3 +435,181 @@ class TestEdgeCases:
 
         # Total should be >= first potential (might have overlap)
         assert potential_both >= potential1
+
+
+class TestGoalPotentialScoring:
+    """Tests for goal potential scoring with single vs double completion."""
+
+    @pytest.fixture
+    def aaa_bbb_goal(self):
+        """AAA-BBB goal at default position."""
+        return GoalAAA_BBB((-2, 1, 1))
+
+    @pytest.fixture
+    def aa_bb_cc_goal(self):
+        """AA-BB-CC goal at default position."""
+        return GoalAA_BB_CC((1, -1, 0))
+
+    @pytest.fixture
+    def all_unique_goal(self):
+        """All Unique goal at default position."""
+        return GoalAllUnique((0, 1, -1))
+
+    def test_empty_goal_zero_potential(self, clean_grid, aaa_bbb_goal):
+        """Goal with no neighbors should have 0 potential."""
+        potential = estimate_goal_potential(clean_grid, aaa_bbb_goal)
+        assert potential == 0
+
+    def test_partial_progress_gives_potential(self, clean_grid, aaa_bbb_goal):
+        """Goal with some neighbors filled should have positive potential."""
+        neighbors = clean_grid.get_neighbors(*aaa_bbb_goal.position)
+        # Fill 3 neighbors with matching pattern (trending toward 3-3)
+        clean_grid.set_tile(*neighbors[0], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[1], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[2], Tile(Color.PINK, Pattern.LEAVES))
+
+        potential = estimate_goal_potential(clean_grid, aaa_bbb_goal)
+        assert potential > 0
+
+    def test_double_progress_higher_than_single(self, aaa_bbb_goal):
+        """Progress toward both conditions should give higher potential than just one."""
+        # Use fresh grids for each scenario to avoid position validity issues
+
+        # Scenario A: Good color progress, bad pattern progress (all same pattern)
+        grid_a = HexGrid()
+        heuristic_module._cached_5_lines = None
+        heuristic_module._cached_3_lines = None
+        neighbors = grid_a.get_neighbors(*aaa_bbb_goal.position)
+        valid_neighbors = [n for n in neighbors if n in grid_a.all_positions]
+
+        # 2 blue, 1 pink - trending toward 3-3 colors, but patterns all same
+        grid_a.set_tile(*valid_neighbors[0], Tile(Color.BLUE, Pattern.DOTS))
+        grid_a.set_tile(*valid_neighbors[1], Tile(Color.BLUE, Pattern.DOTS))
+        grid_a.set_tile(*valid_neighbors[2], Tile(Color.PINK, Pattern.DOTS))
+
+        single_track_potential = estimate_goal_potential(grid_a, aaa_bbb_goal)
+
+        # Scenario B: Good progress on BOTH color and pattern
+        grid_b = HexGrid()
+        neighbors = grid_b.get_neighbors(*aaa_bbb_goal.position)
+        valid_neighbors = [n for n in neighbors if n in grid_b.all_positions]
+
+        # 2 blue dots, 1 pink leaves - good 3-3 progress for both color AND pattern
+        grid_b.set_tile(*valid_neighbors[0], Tile(Color.BLUE, Pattern.DOTS))
+        grid_b.set_tile(*valid_neighbors[1], Tile(Color.BLUE, Pattern.DOTS))
+        grid_b.set_tile(*valid_neighbors[2], Tile(Color.PINK, Pattern.LEAVES))
+
+        double_track_potential = estimate_goal_potential(grid_b, aaa_bbb_goal)
+
+        assert double_track_potential > single_track_potential, \
+            "Double-track progress should give higher potential"
+
+    def test_color_impossible_bounds_to_single_max(self, clean_grid, aaa_bbb_goal):
+        """When color 3-3 becomes impossible, potential should bound to single_max (8)."""
+        neighbors = clean_grid.get_neighbors(*aaa_bbb_goal.position)
+
+        # Place 4 tiles with 3 different colors - makes 3-3 color impossible
+        # But patterns are 2 dots, 2 leaves - still possible for pattern 3-3
+        clean_grid.set_tile(*neighbors[0], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[1], Tile(Color.PINK, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[2], Tile(Color.GREEN, Pattern.LEAVES))
+        clean_grid.set_tile(*neighbors[3], Tile(Color.BLUE, Pattern.LEAVES))
+
+        potential = estimate_goal_potential(clean_grid, aaa_bbb_goal)
+
+        # Max achievable is single (8 pts), so potential should be based on that
+        # With 4/6 filled and good pattern progress, should be reasonable but not huge
+        max_single = 8.0
+        assert potential <= max_single * 0.6, \
+            f"Potential {potential} should be bounded by single_max possibility"
+
+    def test_pattern_impossible_bounds_to_single_max(self, clean_grid, all_unique_goal):
+        """When pattern uniqueness becomes impossible, bound to single_max."""
+        neighbors = clean_grid.get_neighbors(*all_unique_goal.position)
+
+        # Place tiles with duplicate pattern but unique colors
+        # This makes pattern uniqueness impossible, color uniqueness still possible
+        clean_grid.set_tile(*neighbors[0], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[1], Tile(Color.PINK, Pattern.DOTS))  # Duplicate pattern!
+        clean_grid.set_tile(*neighbors[2], Tile(Color.GREEN, Pattern.LEAVES))
+        clean_grid.set_tile(*neighbors[3], Tile(Color.YELLOW, Pattern.FLOWERS))
+
+        potential = estimate_goal_potential(clean_grid, all_unique_goal)
+
+        # Pattern is blocked (duplicate DOTS), so max is single (10 pts)
+        max_single = 10.0
+        assert potential <= max_single * 0.6
+
+    def test_both_impossible_gives_zero(self, clean_grid, aaa_bbb_goal):
+        """When both conditions are impossible, potential should be 0."""
+        neighbors = clean_grid.get_neighbors(*aaa_bbb_goal.position)
+
+        # Place 6 tiles that fail both conditions
+        # 4 blue, 2 pink (fails 3-3 color)
+        # 4 dots, 2 leaves (fails 3-3 pattern)
+        clean_grid.set_tile(*neighbors[0], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[1], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[2], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[3], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[4], Tile(Color.PINK, Pattern.LEAVES))
+        clean_grid.set_tile(*neighbors[5], Tile(Color.PINK, Pattern.LEAVES))
+
+        potential = estimate_goal_potential(clean_grid, aaa_bbb_goal)
+
+        # Both conditions are impossible, so potential should be 0
+        # Note: The goal's actual score() would return 0 since conditions aren't met
+        assert potential == 0
+
+    def test_aa_bb_cc_double_progress(self, clean_grid, aa_bb_cc_goal):
+        """AA-BB-CC goal with good double progress should use higher max."""
+        neighbors = clean_grid.get_neighbors(*aa_bb_cc_goal.position)
+
+        # Perfect 2-2-2 progress for both color AND pattern
+        clean_grid.set_tile(*neighbors[0], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[1], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[2], Tile(Color.PINK, Pattern.LEAVES))
+        clean_grid.set_tile(*neighbors[3], Tile(Color.PINK, Pattern.LEAVES))
+
+        potential = estimate_goal_potential(clean_grid, aa_bb_cc_goal)
+
+        # With 4/6 filled and perfect 2-2 progress on both, should be meaningful
+        assert potential > 0
+        # Should be getting credit toward the 11-point max, not just 7
+
+    def test_all_unique_perfect_double_progress(self, clean_grid, all_unique_goal):
+        """All Unique with perfect double progress should aim for 15 pts."""
+        neighbors = clean_grid.get_neighbors(*all_unique_goal.position)
+
+        # 4 unique colors AND 4 unique patterns
+        clean_grid.set_tile(*neighbors[0], Tile(Color.BLUE, Pattern.DOTS))
+        clean_grid.set_tile(*neighbors[1], Tile(Color.PINK, Pattern.LEAVES))
+        clean_grid.set_tile(*neighbors[2], Tile(Color.GREEN, Pattern.FLOWERS))
+        clean_grid.set_tile(*neighbors[3], Tile(Color.YELLOW, Pattern.STRIPES))
+
+        potential = estimate_goal_potential(clean_grid, all_unique_goal)
+
+        # Perfect progress toward 15-point completion
+        assert potential > 0
+
+    def test_progression_increases_with_tiles(self, clean_grid, aaa_bbb_goal):
+        """Potential should generally increase as more compatible tiles are placed."""
+        neighbors = clean_grid.get_neighbors(*aaa_bbb_goal.position)
+
+        potentials = []
+
+        # Add tiles progressively toward a 3-3 configuration
+        tiles_to_add = [
+            (neighbors[0], Tile(Color.BLUE, Pattern.DOTS)),
+            (neighbors[1], Tile(Color.BLUE, Pattern.DOTS)),
+            (neighbors[2], Tile(Color.PINK, Pattern.LEAVES)),
+            (neighbors[3], Tile(Color.PINK, Pattern.LEAVES)),
+            (neighbors[4], Tile(Color.BLUE, Pattern.DOTS)),
+        ]
+
+        for pos, tile in tiles_to_add:
+            clean_grid.set_tile(*pos, tile)
+            potentials.append(estimate_goal_potential(clean_grid, aaa_bbb_goal))
+
+        # General trend should be increasing (may not be strictly monotonic)
+        assert potentials[-1] >= potentials[0], \
+            "Potential should increase as we approach goal completion"
