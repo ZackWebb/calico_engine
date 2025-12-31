@@ -2,8 +2,9 @@
 Benchmark runner with MLflow tracking for Calico MCTS experiments.
 
 Usage:
-    python benchmark.py                          # Run default benchmark
+    python benchmark.py                          # Run default benchmark (16 games, 4 workers)
     python benchmark.py -n 20 -i 1000           # 20 games, 1000 iterations
+    python benchmark.py --workers 8             # Use 8 parallel workers
     python benchmark.py --tag "improved_heuristic"  # Add a tag for this run
     python benchmark.py --sweep                  # Run parameter sweep
     python benchmark.py --seeds 0-9             # Use fixed seeds for reproducibility
@@ -15,6 +16,7 @@ import argparse
 import random
 import time
 import subprocess
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from statistics import mean, stdev
@@ -140,9 +142,56 @@ def run_random_game(seed: Optional[int] = None) -> int:
     return game.play_random_game()
 
 
+def _run_game_worker(args: Tuple) -> Dict[str, Any]:
+    """
+    Worker function for parallel game execution.
+    Creates its own agent instance since agents can't be pickled across processes.
+
+    Args is a tuple of (seed, agent_config, record)
+    Returns dict with game results.
+    """
+    seed, agent_config, record = args
+
+    # Create agent in this process
+    agent = MCTSAgent(
+        exploration_constant=agent_config["exploration_constant"],
+        max_iterations=agent_config["max_iterations"],
+        late_game_threshold=agent_config["late_game_threshold"],
+        use_heuristic=agent_config["use_heuristic"],
+        use_deterministic_rollout=agent_config["use_deterministic_rollout"],
+        use_combined_actions=agent_config["use_combined_actions"],
+        verbose=False
+    )
+
+    # Run MCTS game
+    score, elapsed, breakdown, game_record = run_single_game(
+        agent, verbose=False, record=record, seed=seed
+    )
+
+    # Run random game with same seed
+    random_score = run_random_game(seed=seed)
+
+    # Extract breakdown totals
+    cats_total = sum(breakdown.get('cats', {}).values())
+    goals_total = sum(breakdown.get('goals', {}).values())
+    buttons_info = breakdown.get('buttons', {})
+    buttons_total = buttons_info.get('button_score', 0) + buttons_info.get('rainbow_score', 0)
+
+    return {
+        "seed": seed,
+        "mcts_score": score,
+        "elapsed": elapsed,
+        "random_score": random_score,
+        "cats_total": cats_total,
+        "goals_total": goals_total,
+        "buttons_total": buttons_total,
+        "game_record": game_record,
+    }
+
+
 def run_benchmark(
-    n_games: int = 10,
-    iterations: int = 1000,
+    n_games: int = 16,
+    iterations: int = 5000,
     exploration: float = 1.4,
     late_game_threshold: int = 5,
     use_heuristic: bool = True,
@@ -151,7 +200,8 @@ def run_benchmark(
     verbose: bool = False,
     record: bool = True,
     tags: Dict[str, str] = None,
-    seeds: Optional[List[int]] = None
+    seeds: Optional[List[int]] = None,
+    workers: int = 4
 ) -> Tuple[Dict[str, Any], List[str], Optional[List[int]]]:
     """
     Run benchmark and log to MLflow.
@@ -159,27 +209,28 @@ def run_benchmark(
     Args:
         seeds: Optional list of seeds for reproducibility. If provided, must have
                length >= n_games. Each game uses the corresponding seed.
+        workers: Number of parallel workers (default 4). Set to 1 for sequential.
 
     Returns (results dict, list of game record filenames, seeds used).
     """
-    # Create agent with config
-    agent = MCTSAgent(
-        exploration_constant=exploration,
-        max_iterations=iterations,
-        late_game_threshold=late_game_threshold,
-        use_heuristic=use_heuristic,
-        use_deterministic_rollout=use_deterministic_rollout,
-        use_combined_actions=use_combined_actions,
-        verbose=False
-    )
+    # Agent config (passed to workers, not the agent itself)
+    agent_config = {
+        "exploration_constant": exploration,
+        "max_iterations": iterations,
+        "late_game_threshold": late_game_threshold,
+        "use_heuristic": use_heuristic,
+        "use_deterministic_rollout": use_deterministic_rollout,
+        "use_combined_actions": use_combined_actions,
+    }
 
-    # Resolve seeds
+    # Resolve seeds - default to 0-(n_games-1) if not specified
     if seeds is not None:
         if len(seeds) < n_games:
             raise ValueError(f"Not enough seeds ({len(seeds)}) for {n_games} games")
         seeds_used = seeds[:n_games]
     else:
-        seeds_used = None
+        # Default to fixed seeds for reproducibility
+        seeds_used = list(range(n_games))
 
     # Collect results
     mcts_scores = []
@@ -192,46 +243,58 @@ def run_benchmark(
     goal_scores = []
     button_scores = []
 
-    print(f"Running {n_games} games...")
+    print(f"Running {n_games} games with {workers} workers...")
     print(f"  Iterations: {iterations}")
     print(f"  Exploration: {exploration}")
     print(f"  Heuristic: {use_heuristic}")
     print(f"  Combined actions: {use_combined_actions}")
     print(f"  Recording: {record}")
-    if seeds_used:
-        print(f"  Seeds: {seeds_used[0]}-{seeds_used[-1]}")
+    print(f"  Seeds: {seeds_used[0]}-{seeds_used[-1]}")
     print()
 
-    for i in range(n_games):
-        seed = seeds_used[i] if seeds_used else None
-        seed_str = f" (seed={seed})" if seed is not None else ""
-        print(f"Game {i+1}/{n_games}{seed_str}...", end=" ")
+    # Prepare work items
+    work_items = [(seed, agent_config, record) for seed in seeds_used]
 
-        # MCTS game
-        score, elapsed, breakdown, game_record = run_single_game(agent, verbose=False, record=record, seed=seed)
-        mcts_scores.append(score)
-        mcts_times.append(elapsed)
+    if workers == 1:
+        # Sequential execution (useful for debugging)
+        results_list = []
+        for i, item in enumerate(work_items):
+            print(f"Game {i+1}/{n_games} (seed={item[0]})...", end=" ", flush=True)
+            result = _run_game_worker(item)
+            results_list.append(result)
+            print(f"MCTS: {result['mcts_score']:3d} ({result['elapsed']:.1f}s), Random: {result['random_score']:3d}")
+    else:
+        # Parallel execution
+        results_list = []
+        completed = 0
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            # Submit all jobs
+            future_to_seed = {executor.submit(_run_game_worker, item): item[0] for item in work_items}
 
-        # Save game record if recording
-        if game_record:
-            record_path = save_game_record(game_record)
+            # Collect results as they complete
+            for future in as_completed(future_to_seed):
+                seed = future_to_seed[future]
+                result = future.result()
+                results_list.append(result)
+                completed += 1
+                print(f"[{completed}/{n_games}] Seed {seed}: MCTS={result['mcts_score']:3d} ({result['elapsed']:.1f}s), Random={result['random_score']:3d}")
+
+        # Sort by seed for consistent ordering
+        results_list.sort(key=lambda x: x['seed'])
+
+    # Process results
+    for result in results_list:
+        mcts_scores.append(result['mcts_score'])
+        mcts_times.append(result['elapsed'])
+        random_scores.append(result['random_score'])
+        cat_scores.append(result['cats_total'])
+        goal_scores.append(result['goals_total'])
+        button_scores.append(result['buttons_total'])
+
+        # Save game record if present
+        if result['game_record']:
+            record_path = save_game_record(result['game_record'])
             game_record_files.append(Path(record_path).name)
-
-        # Extract breakdown
-        cats_total = sum(breakdown.get('cats', {}).values())
-        goals_total = sum(breakdown.get('goals', {}).values())
-        buttons_info = breakdown.get('buttons', {})
-        buttons_total = buttons_info.get('button_score', 0) + buttons_info.get('rainbow_score', 0)
-
-        cat_scores.append(cats_total)
-        goal_scores.append(goals_total)
-        button_scores.append(buttons_total)
-
-        # Random game (same seed for fair comparison)
-        random_score = run_random_game(seed=seed)
-        random_scores.append(random_score)
-
-        print(f"MCTS: {score:3d} ({elapsed:.1f}s), Random: {random_score:3d}")
 
     # Calculate statistics
     results = {
@@ -304,10 +367,10 @@ def main():
     parser = argparse.ArgumentParser(description="Benchmark MCTS with MLflow tracking")
 
     # Benchmark parameters
-    parser.add_argument("-n", "--n-games", type=int, default=10,
-                       help="Number of games to run (default: 10)")
-    parser.add_argument("-i", "--iterations", type=int, default=1000,
-                       help="MCTS iterations per move (default: 1000)")
+    parser.add_argument("-n", "--n-games", type=int, default=16,
+                       help="Number of games to run (default: 16)")
+    parser.add_argument("-i", "--iterations", type=int, default=5000,
+                       help="MCTS iterations per move (default: 5000)")
     parser.add_argument("-e", "--exploration", type=float, default=1.4,
                        help="UCB1 exploration constant (default: 1.4)")
     parser.add_argument("-t", "--threshold", type=int, default=5,
@@ -329,6 +392,10 @@ def main():
     parser.add_argument("--run-name", type=str, default=None,
                        help="Name for this MLflow run")
 
+    # Parallelization
+    parser.add_argument("-w", "--workers", type=int, default=4,
+                       help="Number of parallel workers (default: 4, use 1 for sequential)")
+
     # Special modes
     parser.add_argument("--sweep", action="store_true",
                        help="Run parameter sweep across iterations")
@@ -339,7 +406,7 @@ def main():
     parser.add_argument("--no-record", action="store_true",
                        help="Disable game recording (default: recording enabled)")
     parser.add_argument("--seeds", type=str, default=None,
-                       help="Seeds for reproducibility: '0-9', '0,5,10', or 'fixed' (uses 0 to n-1)")
+                       help="Seeds for reproducibility: '0-9', '0,5,10', or 'fixed' (default: 0 to n-1)")
 
     args = parser.parse_args()
 
@@ -386,6 +453,7 @@ def main():
                 verbose=args.verbose,
                 record=not args.no_record,
                 seeds=seeds,
+                workers=args.workers,
             )
 
             print(f"\nResults: mean={results['mcts_mean']:.1f}, "
@@ -419,6 +487,7 @@ def main():
             verbose=args.verbose,
             record=not args.no_record,
             seeds=seeds,
+            workers=args.workers,
         )
 
         # Print summary

@@ -47,7 +47,7 @@ def play(
 
 @app.command()
 def mcts(
-    iterations: int = typer.Option(1000, "--iterations", "-i", help="MCTS iterations per move"),
+    iterations: int = typer.Option(5000, "--iterations", "-i", help="MCTS iterations per move (default: 5000)"),
     exploration: float = typer.Option(1.4, "--exploration", "-e", help="UCB1 exploration constant"),
     threshold: int = typer.Option(5, "--threshold", "-t", help="Late game threshold for full rollouts"),
     baseline: int = typer.Option(0, "--baseline", "-b", help="Run N games comparing MCTS vs random"),
@@ -373,10 +373,11 @@ def test(
 
 @app.command()
 def benchmark(
-    n_games: int = typer.Option(10, "--games", "-n", help="Number of games to run"),
-    iterations: int = typer.Option(1000, "--iterations", "-i", help="MCTS iterations per move"),
+    n_games: int = typer.Option(16, "--games", "-n", help="Number of games to run (default: 16)"),
+    iterations: int = typer.Option(5000, "--iterations", "-i", help="MCTS iterations per move (default: 5000)"),
     exploration: float = typer.Option(1.4, "--exploration", "-e", help="UCB1 exploration constant"),
     threshold: int = typer.Option(5, "--threshold", "-t", help="Late game threshold"),
+    workers: int = typer.Option(4, "--workers", "-w", help="Parallel workers (default: 4)"),
     tag: Optional[str] = typer.Option(None, "--tag", help="Tag for this experiment run"),
     experiment: str = typer.Option("calico-mcts", "--experiment", help="MLflow experiment name"),
     run_name: Optional[str] = typer.Option(None, "--run-name", help="Name for this MLflow run"),
@@ -396,10 +397,10 @@ def benchmark(
     View results with: mlflow ui
 
     Examples:
-        python cli.py benchmark -n 20 -i 1000
+        python cli.py benchmark                     # 16 games, 4 workers
+        python cli.py benchmark -n 20 -i 1000 -w 8  # 20 games, 8 workers
         python cli.py benchmark --tag "improved_heuristic"
         python cli.py benchmark --sweep
-        python cli.py benchmark --seeds 0-9  # Reproducible comparison
     """
     import subprocess
     import sys
@@ -409,6 +410,7 @@ def benchmark(
     cmd.extend(["-i", str(iterations)])
     cmd.extend(["-e", str(exploration)])
     cmd.extend(["-t", str(threshold)])
+    cmd.extend(["-w", str(workers)])
 
     if tag:
         cmd.extend(["--tag", tag])
