@@ -96,4 +96,14 @@ dmypy.json
 
 # Windows
 Thumbs.db
+
+# Claude Code
+.claude/
+
+# MLflow
+mlflow.db
+mlruns/
+
+# Game records (generated data)
+game_records/
 .claude/settings.local.json
