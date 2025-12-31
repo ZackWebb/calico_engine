@@ -1,15 +1,15 @@
 """
-Grid search over heuristic weight ratios.
+Grid search over MCTS parameters: weight ratios and iteration counts.
 
-Sweeps cat_ratio and button_ratio (relative to goals, which has implicit weight 1.0).
-This is a 2D search space - much more efficient than the old 3D space.
+Sweeps cat_ratio, button_ratio (relative to goals), and MCTS iterations.
+With chance node sampling, iteration count significantly impacts performance.
 
 Usage:
-    python sweep_weights.py                    # Run full grid search
-    python sweep_weights.py --analyze          # Analyze previous sweep results
-    python sweep_weights.py --dry-run          # Show combinations without running
-    python sweep_weights.py -n 8 -i 1000       # Fewer games/iterations for testing
-    python sweep_weights.py --record           # Save game records to game_records/
+    python sweep.py                              # Default 3x3 ratio sweep at 5000 iterations
+    python sweep.py --iter 1000,3000,5000        # Sweep iterations too (3x3x3 = 27 configs)
+    python sweep.py --cat 1.0 --button 1.0 --iter 1000,2000,3000,5000  # Iteration-only sweep
+    python sweep.py --analyze                    # Analyze previous sweep results
+    python sweep.py --dry-run                    # Show combinations without running
 """
 import argparse
 import itertools
@@ -28,53 +28,60 @@ MLFLOW_DB_PATH = PROJECT_ROOT / "mlflow.db"
 mlflow.set_tracking_uri(f"sqlite:///{MLFLOW_DB_PATH.as_posix()}")
 
 
-def generate_ratio_combinations(
+def generate_combinations(
     cat_ratios: List[float],
     button_ratios: List[float],
-) -> List[Tuple[float, float]]:
-    """Generate all combinations of ratio values."""
-    return list(itertools.product(cat_ratios, button_ratios))
+    iterations_list: List[int],
+) -> List[Tuple[float, float, int]]:
+    """Generate all combinations of parameters."""
+    return list(itertools.product(cat_ratios, button_ratios, iterations_list))
 
 
 def run_sweep(
     n_games: int = 16,
-    iterations: int = 5000,
     workers: int = 4,
     cat_ratios: List[float] = None,
     button_ratios: List[float] = None,
-    experiment_name: str = "calico-ratio-sweep",
+    iterations_list: List[int] = None,
+    experiment_name: str = "calico-sweep",
     tag: str = None,
     record: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    Run benchmark for each ratio combination.
+    Run benchmark for each parameter combination.
 
-    Returns list of result dicts with ratios and metrics.
+    Returns list of result dicts with parameters and metrics.
     """
     if cat_ratios is None:
         cat_ratios = [0.8, 1.0, 1.2]
     if button_ratios is None:
         button_ratios = [0.8, 1.0, 1.2]
+    if iterations_list is None:
+        iterations_list = [5000]
 
-    combinations = generate_ratio_combinations(cat_ratios, button_ratios)
+    combinations = generate_combinations(cat_ratios, button_ratios, iterations_list)
     total = len(combinations)
 
     print("=" * 70)
-    print("RATIO SWEEP (goal weight = 1.0)")
+    print("PARAMETER SWEEP")
     print("=" * 70)
-    print(f"Ratio values:")
+    print(f"Parameters:")
     print(f"  cat_ratio:    {cat_ratios}")
     print(f"  button_ratio: {button_ratios}")
+    print(f"  iterations:   {iterations_list}")
     print(f"Total combinations: {total}")
     print(f"Games per combination: {n_games}")
-    print(f"MCTS iterations: {iterations}")
     print(f"Workers: {workers}")
     print(f"Recording games: {record}")
     print()
 
-    # Estimate time
-    est_time_per_game = 40  # seconds at 5000 iterations
-    est_total = total * n_games * est_time_per_game / workers / 60
+    # Estimate time (scale by iterations relative to 5000)
+    est_time_per_game_5k = 40  # seconds at 5000 iterations
+    total_game_seconds = sum(
+        n_games * (iters / 5000) * est_time_per_game_5k
+        for _, _, iters in combinations
+    )
+    est_total = total_game_seconds / workers / 60
     print(f"Estimated time: ~{est_total:.0f} minutes")
     print("=" * 70)
     print()
@@ -84,15 +91,15 @@ def run_sweep(
 
     all_results = []
 
-    for i, (cat_r, button_r) in enumerate(combinations, 1):
-        print(f"\n[{i}/{total}] cat_ratio={cat_r}, button_ratio={button_r}")
+    for i, (cat_r, button_r, iters) in enumerate(combinations, 1):
+        print(f"\n[{i}/{total}] cat={cat_r}, button={button_r}, iter={iters}")
         print("-" * 50)
 
         start_time = time.time()
 
         results, _, seeds_used = run_benchmark(
             n_games=n_games,
-            iterations=iterations,
+            iterations=iters,
             workers=workers,
             cat_ratio=cat_r,
             button_ratio=button_r,
@@ -101,10 +108,11 @@ def run_sweep(
 
         elapsed = time.time() - start_time
 
-        # Store results with ratios
+        # Store results with parameters
         result_entry = {
             "cat_ratio": cat_r,
             "button_ratio": button_r,
+            "iterations": iters,
             **results,
         }
         all_results.append(result_entry)
@@ -112,7 +120,7 @@ def run_sweep(
         # Log to MLflow
         params = {
             "n_games": n_games,
-            "iterations": iterations,
+            "iterations": iters,
             "cat_ratio": cat_r,
             "button_ratio": button_r,
             "use_heuristic": True,
@@ -120,13 +128,13 @@ def run_sweep(
         }
 
         tags = {
-            "sweep": "ratios",
+            "sweep": "params",
             "sweep_id": sweep_id,
         }
         if tag:
             tags["tag"] = tag
 
-        run_name = f"r_c{cat_r}_b{button_r}"
+        run_name = f"c{cat_r}_b{button_r}_i{iters}"
         log_to_mlflow(results, params, tags, run_name=run_name, seeds_used=seeds_used)
 
         print(f"\nResult: mean={results['mcts_mean']:.1f}, std={results['mcts_std']:.1f}")
@@ -143,25 +151,48 @@ def print_summary(results: List[Dict[str, Any]]) -> None:
     print("SWEEP RESULTS - Sorted by Mean Score")
     print("=" * 70)
     print()
-    print(f"{'Cat':>6} {'Btn':>6} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5}")
-    print("-" * 60)
+
+    # Check if we have multiple iteration values
+    iterations = set(r['iterations'] for r in results)
+    has_iter_sweep = len(iterations) > 1
+
+    if has_iter_sweep:
+        print(f"{'Cat':>5} {'Btn':>5} {'Iter':>6} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5}")
+        print("-" * 65)
+    else:
+        print(f"{'Cat':>6} {'Btn':>6} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5}")
+        print("-" * 60)
 
     # Sort by mean score descending
     sorted_results = sorted(results, key=lambda x: x['mcts_mean'], reverse=True)
 
     for r in sorted_results:
-        print(f"{r['cat_ratio']:6.2f} {r['button_ratio']:6.2f} | "
-              f"{r['mcts_mean']:6.1f} {r['mcts_std']:5.1f} | "
-              f"{r['cat_score_mean']:5.1f} {r['goal_score_mean']:5.1f} {r['button_score_mean']:5.1f}")
+        if has_iter_sweep:
+            print(f"{r['cat_ratio']:5.2f} {r['button_ratio']:5.2f} {r['iterations']:6d} | "
+                  f"{r['mcts_mean']:6.1f} {r['mcts_std']:5.1f} | "
+                  f"{r['cat_score_mean']:5.1f} {r['goal_score_mean']:5.1f} {r['button_score_mean']:5.1f}")
+        else:
+            print(f"{r['cat_ratio']:6.2f} {r['button_ratio']:6.2f} | "
+                  f"{r['mcts_mean']:6.1f} {r['mcts_std']:5.1f} | "
+                  f"{r['cat_score_mean']:5.1f} {r['goal_score_mean']:5.1f} {r['button_score_mean']:5.1f}")
 
     print()
     print("Best configuration:")
     best = sorted_results[0]
-    print(f"  cat_ratio={best['cat_ratio']}, button_ratio={best['button_ratio']} (goal=1.0)")
+    print(f"  cat_ratio={best['cat_ratio']}, button_ratio={best['button_ratio']}, iterations={best['iterations']}")
     print(f"  Mean score: {best['mcts_mean']:.1f} (std={best['mcts_std']:.1f})")
 
+    # If sweeping iterations, show iteration impact
+    if has_iter_sweep:
+        print()
+        print("Iteration impact (averaged across weight configs):")
+        for iters in sorted(iterations):
+            iter_results = [r for r in results if r['iterations'] == iters]
+            avg_score = sum(r['mcts_mean'] for r in iter_results) / len(iter_results)
+            print(f"  {iters:5d} iterations: mean={avg_score:.1f}")
 
-def analyze_previous_sweeps(experiment_name: str = "calico-ratio-sweep") -> None:
+
+def analyze_previous_sweeps(experiment_name: str = "calico-sweep") -> None:
     """Query MLflow for previous sweep results and display summary."""
     print("Analyzing previous sweep results from MLflow...")
     print()
@@ -176,18 +207,18 @@ def analyze_previous_sweeps(experiment_name: str = "calico-ratio-sweep") -> None
 
         runs = client.search_runs(
             experiment_ids=[experiment.experiment_id],
-            filter_string="tags.sweep = 'ratios'",
+            filter_string="tags.sweep = 'params'",
             order_by=["metrics.mcts_mean DESC"],
         )
 
         if not runs:
-            print("No ratio sweep runs found.")
+            print("No sweep runs found.")
             return
 
-        print(f"Found {len(runs)} ratio sweep runs")
+        print(f"Found {len(runs)} sweep runs")
         print()
-        print(f"{'Cat':>6} {'Btn':>6} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5} | Sweep ID")
-        print("-" * 80)
+        print(f"{'Cat':>5} {'Btn':>5} {'Iter':>6} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5} | Sweep ID")
+        print("-" * 85)
 
         for run in runs[:30]:  # Show top 30
             p = run.data.params
@@ -196,8 +227,9 @@ def analyze_previous_sweeps(experiment_name: str = "calico-ratio-sweep") -> None
 
             cat_r = float(p.get('cat_ratio', 1.0))
             button_r = float(p.get('button_ratio', 1.0))
+            iters = int(p.get('iterations', 5000))
 
-            print(f"{cat_r:6.2f} {button_r:6.2f} | "
+            print(f"{cat_r:5.2f} {button_r:5.2f} {iters:6d} | "
                   f"{m.get('mcts_mean', 0):6.1f} {m.get('mcts_std', 0):5.1f} | "
                   f"{m.get('cat_score_mean', 0):5.1f} {m.get('goal_score_mean', 0):5.1f} {m.get('button_score_mean', 0):5.1f} | "
                   f"{t.get('sweep_id', 'N/A')[:15]}")
@@ -211,7 +243,7 @@ def analyze_previous_sweeps(experiment_name: str = "calico-ratio-sweep") -> None
         p = best.data.params
         m = best.data.metrics
         print("Best configuration overall:")
-        print(f"  cat_ratio={p.get('cat_ratio')}, button_ratio={p.get('button_ratio')}")
+        print(f"  cat_ratio={p.get('cat_ratio')}, button_ratio={p.get('button_ratio')}, iterations={p.get('iterations')}")
         print(f"  Mean score: {m.get('mcts_mean', 0):.1f}")
 
     except Exception as e:
@@ -219,24 +251,24 @@ def analyze_previous_sweeps(experiment_name: str = "calico-ratio-sweep") -> None
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Grid search over heuristic weight ratios")
+    parser = argparse.ArgumentParser(description="Grid search over MCTS parameters")
 
     # Benchmark settings
     parser.add_argument("-n", "--n-games", type=int, default=16,
-                       help="Games per ratio combination (default: 16)")
-    parser.add_argument("-i", "--iterations", type=int, default=5000,
-                       help="MCTS iterations per move (default: 5000)")
+                       help="Games per configuration (default: 16)")
     parser.add_argument("-w", "--workers", type=int, default=4,
                        help="Parallel workers (default: 4)")
 
-    # Ratio ranges
+    # Parameter ranges
     parser.add_argument("--cat", type=str, default="0.8,1.0,1.2",
                        help="Cat ratio values (comma-separated, default: 0.8,1.0,1.2)")
     parser.add_argument("--button", type=str, default="0.8,1.0,1.2",
                        help="Button ratio values (comma-separated, default: 0.8,1.0,1.2)")
+    parser.add_argument("--iter", type=str, default="5000",
+                       help="MCTS iteration values (comma-separated, default: 5000)")
 
     # Options
-    parser.add_argument("--experiment", type=str, default="calico-ratio-sweep",
+    parser.add_argument("--experiment", type=str, default="calico-sweep",
                        help="MLflow experiment name")
     parser.add_argument("--tag", type=str, default=None,
                        help="Tag for this sweep")
@@ -253,17 +285,18 @@ def main():
         analyze_previous_sweeps(args.experiment)
         return
 
-    # Parse ratio values
+    # Parse parameter values
     cat_ratios = [float(x.strip()) for x in args.cat.split(",")]
     button_ratios = [float(x.strip()) for x in args.button.split(",")]
+    iterations_list = [int(x.strip()) for x in args.iter.split(",")]
 
-    combinations = generate_ratio_combinations(cat_ratios, button_ratios)
+    combinations = generate_combinations(cat_ratios, button_ratios, iterations_list)
 
     if args.dry_run:
-        print("Ratio combinations to test (goal weight = 1.0):")
+        print("Parameter combinations to test:")
         print()
-        for i, (c, b) in enumerate(combinations, 1):
-            print(f"  {i:2d}. cat_ratio={c}, button_ratio={b}")
+        for i, (c, b, iters) in enumerate(combinations, 1):
+            print(f"  {i:2d}. cat={c}, button={b}, iter={iters}")
         print()
         print(f"Total: {len(combinations)} combinations")
         print(f"Games per combination: {args.n_games}")
@@ -275,10 +308,10 @@ def main():
 
     results = run_sweep(
         n_games=args.n_games,
-        iterations=args.iterations,
         workers=args.workers,
         cat_ratios=cat_ratios,
         button_ratios=button_ratios,
+        iterations_list=iterations_list,
         experiment_name=args.experiment,
         tag=args.tag,
         record=args.record,
