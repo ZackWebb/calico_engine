@@ -1,14 +1,15 @@
 """
-Grid search over heuristic weight combinations.
+Grid search over heuristic weight ratios.
 
-Runs full 16-game benchmarks for each weight combination and logs to MLflow.
-Results can be analyzed afterward using MLflow UI or the --analyze flag.
+Sweeps cat_ratio and button_ratio (relative to goals, which has implicit weight 1.0).
+This is a 2D search space - much more efficient than the old 3D space.
 
 Usage:
     python sweep_weights.py                    # Run full grid search
     python sweep_weights.py --analyze          # Analyze previous sweep results
     python sweep_weights.py --dry-run          # Show combinations without running
     python sweep_weights.py -n 8 -i 1000       # Fewer games/iterations for testing
+    python sweep_weights.py --record           # Save game records to game_records/
 """
 import argparse
 import itertools
@@ -27,51 +28,48 @@ MLFLOW_DB_PATH = PROJECT_ROOT / "mlflow.db"
 mlflow.set_tracking_uri(f"sqlite:///{MLFLOW_DB_PATH.as_posix()}")
 
 
-def generate_weight_combinations(
-    cat_values: List[float],
-    goal_values: List[float],
-    button_values: List[float],
-) -> List[Tuple[float, float, float]]:
-    """Generate all combinations of weight values."""
-    return list(itertools.product(cat_values, goal_values, button_values))
+def generate_ratio_combinations(
+    cat_ratios: List[float],
+    button_ratios: List[float],
+) -> List[Tuple[float, float]]:
+    """Generate all combinations of ratio values."""
+    return list(itertools.product(cat_ratios, button_ratios))
 
 
 def run_sweep(
     n_games: int = 16,
     iterations: int = 5000,
     workers: int = 4,
-    cat_values: List[float] = None,
-    goal_values: List[float] = None,
-    button_values: List[float] = None,
-    experiment_name: str = "calico-weight-sweep",
+    cat_ratios: List[float] = None,
+    button_ratios: List[float] = None,
+    experiment_name: str = "calico-ratio-sweep",
     tag: str = None,
+    record: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    Run benchmark for each weight combination.
+    Run benchmark for each ratio combination.
 
-    Returns list of result dicts with weights and metrics.
+    Returns list of result dicts with ratios and metrics.
     """
-    if cat_values is None:
-        cat_values = [0.8, 1.0, 1.2]
-    if goal_values is None:
-        goal_values = [0.8, 1.0, 1.2]
-    if button_values is None:
-        button_values = [0.8, 1.0, 1.2]
+    if cat_ratios is None:
+        cat_ratios = [0.8, 1.0, 1.2]
+    if button_ratios is None:
+        button_ratios = [0.8, 1.0, 1.2]
 
-    combinations = generate_weight_combinations(cat_values, goal_values, button_values)
+    combinations = generate_ratio_combinations(cat_ratios, button_ratios)
     total = len(combinations)
 
     print("=" * 70)
-    print("WEIGHT SWEEP")
+    print("RATIO SWEEP (goal weight = 1.0)")
     print("=" * 70)
-    print(f"Weight values:")
-    print(f"  cat:    {cat_values}")
-    print(f"  goal:   {goal_values}")
-    print(f"  button: {button_values}")
+    print(f"Ratio values:")
+    print(f"  cat_ratio:    {cat_ratios}")
+    print(f"  button_ratio: {button_ratios}")
     print(f"Total combinations: {total}")
     print(f"Games per combination: {n_games}")
     print(f"MCTS iterations: {iterations}")
     print(f"Workers: {workers}")
+    print(f"Recording games: {record}")
     print()
 
     # Estimate time
@@ -86,8 +84,8 @@ def run_sweep(
 
     all_results = []
 
-    for i, (cat_w, goal_w, button_w) in enumerate(combinations, 1):
-        print(f"\n[{i}/{total}] cat={cat_w}, goal={goal_w}, button={button_w}")
+    for i, (cat_r, button_r) in enumerate(combinations, 1):
+        print(f"\n[{i}/{total}] cat_ratio={cat_r}, button_ratio={button_r}")
         print("-" * 50)
 
         start_time = time.time()
@@ -96,19 +94,17 @@ def run_sweep(
             n_games=n_games,
             iterations=iterations,
             workers=workers,
-            cat_weight=cat_w,
-            goal_weight=goal_w,
-            button_weight=button_w,
-            record=False,  # Skip recording for speed
+            cat_ratio=cat_r,
+            button_ratio=button_r,
+            record=record,
         )
 
         elapsed = time.time() - start_time
 
-        # Store results with weights
+        # Store results with ratios
         result_entry = {
-            "cat_weight": cat_w,
-            "goal_weight": goal_w,
-            "button_weight": button_w,
+            "cat_ratio": cat_r,
+            "button_ratio": button_r,
             **results,
         }
         all_results.append(result_entry)
@@ -117,21 +113,20 @@ def run_sweep(
         params = {
             "n_games": n_games,
             "iterations": iterations,
-            "cat_weight": cat_w,
-            "goal_weight": goal_w,
-            "button_weight": button_w,
+            "cat_ratio": cat_r,
+            "button_ratio": button_r,
             "use_heuristic": True,
             "use_combined_actions": True,
         }
 
         tags = {
-            "sweep": "weights",
+            "sweep": "ratios",
             "sweep_id": sweep_id,
         }
         if tag:
             tags["tag"] = tag
 
-        run_name = f"w_c{cat_w}_g{goal_w}_b{button_w}"
+        run_name = f"r_c{cat_r}_b{button_r}"
         log_to_mlflow(results, params, tags, run_name=run_name, seeds_used=seeds_used)
 
         print(f"\nResult: mean={results['mcts_mean']:.1f}, std={results['mcts_std']:.1f}")
@@ -148,25 +143,25 @@ def print_summary(results: List[Dict[str, Any]]) -> None:
     print("SWEEP RESULTS - Sorted by Mean Score")
     print("=" * 70)
     print()
-    print(f"{'Cat':>5} {'Goal':>5} {'Btn':>5} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5}")
-    print("-" * 70)
+    print(f"{'Cat':>6} {'Btn':>6} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5}")
+    print("-" * 60)
 
     # Sort by mean score descending
     sorted_results = sorted(results, key=lambda x: x['mcts_mean'], reverse=True)
 
     for r in sorted_results:
-        print(f"{r['cat_weight']:5.1f} {r['goal_weight']:5.1f} {r['button_weight']:5.1f} | "
+        print(f"{r['cat_ratio']:6.2f} {r['button_ratio']:6.2f} | "
               f"{r['mcts_mean']:6.1f} {r['mcts_std']:5.1f} | "
               f"{r['cat_score_mean']:5.1f} {r['goal_score_mean']:5.1f} {r['button_score_mean']:5.1f}")
 
     print()
     print("Best configuration:")
     best = sorted_results[0]
-    print(f"  cat_weight={best['cat_weight']}, goal_weight={best['goal_weight']}, button_weight={best['button_weight']}")
+    print(f"  cat_ratio={best['cat_ratio']}, button_ratio={best['button_ratio']} (goal=1.0)")
     print(f"  Mean score: {best['mcts_mean']:.1f} (std={best['mcts_std']:.1f})")
 
 
-def analyze_previous_sweeps(experiment_name: str = "calico-weight-sweep") -> None:
+def analyze_previous_sweeps(experiment_name: str = "calico-ratio-sweep") -> None:
     """Query MLflow for previous sweep results and display summary."""
     print("Analyzing previous sweep results from MLflow...")
     print()
@@ -181,29 +176,28 @@ def analyze_previous_sweeps(experiment_name: str = "calico-weight-sweep") -> Non
 
         runs = client.search_runs(
             experiment_ids=[experiment.experiment_id],
-            filter_string="tags.sweep = 'weights'",
+            filter_string="tags.sweep = 'ratios'",
             order_by=["metrics.mcts_mean DESC"],
         )
 
         if not runs:
-            print("No weight sweep runs found.")
+            print("No ratio sweep runs found.")
             return
 
-        print(f"Found {len(runs)} weight sweep runs")
+        print(f"Found {len(runs)} ratio sweep runs")
         print()
-        print(f"{'Cat':>5} {'Goal':>5} {'Btn':>5} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5} | Sweep ID")
-        print("-" * 90)
+        print(f"{'Cat':>6} {'Btn':>6} | {'Mean':>6} {'Std':>5} | {'Cats':>5} {'Goals':>5} {'Btns':>5} | Sweep ID")
+        print("-" * 80)
 
         for run in runs[:30]:  # Show top 30
             p = run.data.params
             m = run.data.metrics
             t = run.data.tags
 
-            cat_w = float(p.get('cat_weight', 1.0))
-            goal_w = float(p.get('goal_weight', 1.0))
-            button_w = float(p.get('button_weight', 1.0))
+            cat_r = float(p.get('cat_ratio', 1.0))
+            button_r = float(p.get('button_ratio', 1.0))
 
-            print(f"{cat_w:5.1f} {goal_w:5.1f} {button_w:5.1f} | "
+            print(f"{cat_r:6.2f} {button_r:6.2f} | "
                   f"{m.get('mcts_mean', 0):6.1f} {m.get('mcts_std', 0):5.1f} | "
                   f"{m.get('cat_score_mean', 0):5.1f} {m.get('goal_score_mean', 0):5.1f} {m.get('button_score_mean', 0):5.1f} | "
                   f"{t.get('sweep_id', 'N/A')[:15]}")
@@ -217,7 +211,7 @@ def analyze_previous_sweeps(experiment_name: str = "calico-weight-sweep") -> Non
         p = best.data.params
         m = best.data.metrics
         print("Best configuration overall:")
-        print(f"  cat_weight={p.get('cat_weight')}, goal_weight={p.get('goal_weight')}, button_weight={p.get('button_weight')}")
+        print(f"  cat_ratio={p.get('cat_ratio')}, button_ratio={p.get('button_ratio')}")
         print(f"  Mean score: {m.get('mcts_mean', 0):.1f}")
 
     except Exception as e:
@@ -225,26 +219,24 @@ def analyze_previous_sweeps(experiment_name: str = "calico-weight-sweep") -> Non
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Grid search over heuristic weights")
+    parser = argparse.ArgumentParser(description="Grid search over heuristic weight ratios")
 
     # Benchmark settings
     parser.add_argument("-n", "--n-games", type=int, default=16,
-                       help="Games per weight combination (default: 16)")
+                       help="Games per ratio combination (default: 16)")
     parser.add_argument("-i", "--iterations", type=int, default=5000,
                        help="MCTS iterations per move (default: 5000)")
     parser.add_argument("-w", "--workers", type=int, default=4,
                        help="Parallel workers (default: 4)")
 
-    # Weight ranges
+    # Ratio ranges
     parser.add_argument("--cat", type=str, default="0.8,1.0,1.2",
-                       help="Cat weight values (comma-separated, default: 0.8,1.0,1.2)")
-    parser.add_argument("--goal", type=str, default="0.8,1.0,1.2",
-                       help="Goal weight values (comma-separated, default: 0.8,1.0,1.2)")
+                       help="Cat ratio values (comma-separated, default: 0.8,1.0,1.2)")
     parser.add_argument("--button", type=str, default="0.8,1.0,1.2",
-                       help="Button weight values (comma-separated, default: 0.8,1.0,1.2)")
+                       help="Button ratio values (comma-separated, default: 0.8,1.0,1.2)")
 
     # Options
-    parser.add_argument("--experiment", type=str, default="calico-weight-sweep",
+    parser.add_argument("--experiment", type=str, default="calico-ratio-sweep",
                        help="MLflow experiment name")
     parser.add_argument("--tag", type=str, default=None,
                        help="Tag for this sweep")
@@ -252,6 +244,8 @@ def main():
                        help="Show combinations without running")
     parser.add_argument("--analyze", action="store_true",
                        help="Analyze previous sweep results from MLflow")
+    parser.add_argument("--record", action="store_true",
+                       help="Save game records to game_records/ (slower)")
 
     args = parser.parse_args()
 
@@ -259,18 +253,17 @@ def main():
         analyze_previous_sweeps(args.experiment)
         return
 
-    # Parse weight values
-    cat_values = [float(x.strip()) for x in args.cat.split(",")]
-    goal_values = [float(x.strip()) for x in args.goal.split(",")]
-    button_values = [float(x.strip()) for x in args.button.split(",")]
+    # Parse ratio values
+    cat_ratios = [float(x.strip()) for x in args.cat.split(",")]
+    button_ratios = [float(x.strip()) for x in args.button.split(",")]
 
-    combinations = generate_weight_combinations(cat_values, goal_values, button_values)
+    combinations = generate_ratio_combinations(cat_ratios, button_ratios)
 
     if args.dry_run:
-        print("Weight combinations to test:")
+        print("Ratio combinations to test (goal weight = 1.0):")
         print()
-        for i, (c, g, b) in enumerate(combinations, 1):
-            print(f"  {i:2d}. cat={c}, goal={g}, button={b}")
+        for i, (c, b) in enumerate(combinations, 1):
+            print(f"  {i:2d}. cat_ratio={c}, button_ratio={b}")
         print()
         print(f"Total: {len(combinations)} combinations")
         print(f"Games per combination: {args.n_games}")
@@ -284,11 +277,11 @@ def main():
         n_games=args.n_games,
         iterations=args.iterations,
         workers=args.workers,
-        cat_values=cat_values,
-        goal_values=goal_values,
-        button_values=button_values,
+        cat_ratios=cat_ratios,
+        button_ratios=button_ratios,
         experiment_name=args.experiment,
         tag=args.tag,
+        record=args.record,
     )
 
     total_time = time.time() - start_time

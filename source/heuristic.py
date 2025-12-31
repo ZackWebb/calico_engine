@@ -17,11 +17,20 @@ from button import score_buttons, count_buttons_by_color
 
 @dataclass
 class HeuristicConfig:
-    """Configuration for heuristic weights - enables strategy tuning via benchmarks."""
-    # Top-level weights for each scoring category
-    cat_weight: float = 1.0
-    goal_weight: float = 1.0
-    button_weight: float = 1.0
+    """
+    Configuration for heuristic weights - enables strategy tuning via benchmarks.
+
+    Weights are defined as ratios relative to goals (which has implicit weight 1.0).
+    This eliminates redundancy: (1.0, 1.0, 1.0) and (1.2, 1.2, 1.2) would be equivalent
+    in the old scheme, but now we just use cat_ratio and button_ratio.
+
+    Example interpretations:
+    - cat_ratio=1.2 means cats valued 20% more than goals
+    - button_ratio=0.8 means buttons valued 20% less than goals
+    """
+    # Ratios relative to goals (goal weight is implicitly 1.0)
+    cat_ratio: float = 1.0      # cat_weight / goal_weight
+    button_ratio: float = 1.0   # button_weight / goal_weight
 
     # Sub-weights for fine-tuning
     goal_discount: float = 0.4  # Discount factor for incomplete goals
@@ -287,16 +296,21 @@ def evaluate_state(game, config: HeuristicConfig = None) -> float:
 
     Returns:
         Estimated final score as float
+
+    Note:
+        Goals have implicit weight 1.0; cat_ratio and button_ratio are
+        relative to goals. This eliminates redundant weight combinations.
     """
     if config is None:
         config = DEFAULT_HEURISTIC_CONFIG
 
     grid = game.player.grid
 
+    # Goals have implicit weight 1.0, others are ratios relative to goals
     score = 0.0
-    score += config.cat_weight * evaluate_cats(game)
-    score += config.goal_weight * evaluate_goals(game, config)
-    score += config.button_weight * evaluate_buttons(grid, config)
+    score += config.cat_ratio * evaluate_cats(game)
+    score += 1.0 * evaluate_goals(game, config)  # Goal weight is always 1.0
+    score += config.button_ratio * evaluate_buttons(grid, config)
 
     return score
 

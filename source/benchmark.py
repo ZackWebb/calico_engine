@@ -209,9 +209,8 @@ def run_benchmark(
     tags: Dict[str, str] = None,
     seeds: Optional[List[int]] = None,
     workers: int = 4,
-    cat_weight: float = 1.0,
-    goal_weight: float = 1.0,
-    button_weight: float = 1.0,
+    cat_ratio: float = 1.0,
+    button_ratio: float = 1.0,
 ) -> Tuple[Dict[str, Any], List[str], Optional[List[int]]]:
     """
     Run benchmark and log to MLflow.
@@ -220,9 +219,8 @@ def run_benchmark(
         seeds: Optional list of seeds for reproducibility. If provided, must have
                length >= n_games. Each game uses the corresponding seed.
         workers: Number of parallel workers (default 4). Set to 1 for sequential.
-        cat_weight: Weight for cat scoring in heuristic (default 1.0)
-        goal_weight: Weight for goal scoring in heuristic (default 1.0)
-        button_weight: Weight for button scoring in heuristic (default 1.0)
+        cat_ratio: Ratio of cat weight to goal weight (default 1.0)
+        button_ratio: Ratio of button weight to goal weight (default 1.0)
 
     Returns (results dict, list of game record filenames, seeds used).
     """
@@ -237,10 +235,10 @@ def run_benchmark(
     }
 
     # Heuristic config (passed as dict for pickling across processes)
+    # Uses ratio-based weights (goal weight is implicitly 1.0)
     heuristic_config_dict = {
-        "cat_weight": cat_weight,
-        "goal_weight": goal_weight,
-        "button_weight": button_weight,
+        "cat_ratio": cat_ratio,
+        "button_ratio": button_ratio,
     }
 
     # Resolve seeds - default to 0-(n_games-1) if not specified
@@ -270,8 +268,8 @@ def run_benchmark(
     print(f"  Combined actions: {use_combined_actions}")
     print(f"  Recording: {record}")
     print(f"  Seeds: {seeds_used[0]}-{seeds_used[-1]}")
-    if cat_weight != 1.0 or goal_weight != 1.0 or button_weight != 1.0:
-        print(f"  Weights: cat={cat_weight}, goal={goal_weight}, button={button_weight}")
+    if cat_ratio != 1.0 or button_ratio != 1.0:
+        print(f"  Ratios: cat={cat_ratio}, button={button_ratio} (goal=1.0)")
     print()
 
     # Prepare work items
@@ -418,13 +416,11 @@ def main():
     parser.add_argument("-w", "--workers", type=int, default=4,
                        help="Number of parallel workers (default: 4, use 1 for sequential)")
 
-    # Heuristic weights
-    parser.add_argument("--cat-weight", type=float, default=1.0,
-                       help="Weight for cat scoring in heuristic (default: 1.0)")
-    parser.add_argument("--goal-weight", type=float, default=1.0,
-                       help="Weight for goal scoring in heuristic (default: 1.0)")
-    parser.add_argument("--button-weight", type=float, default=1.0,
-                       help="Weight for button scoring in heuristic (default: 1.0)")
+    # Heuristic weight ratios (relative to goals, which has implicit weight 1.0)
+    parser.add_argument("--cat-ratio", type=float, default=1.0,
+                       help="Cat weight ratio relative to goals (default: 1.0)")
+    parser.add_argument("--button-ratio", type=float, default=1.0,
+                       help="Button weight ratio relative to goals (default: 1.0)")
 
     # Special modes
     parser.add_argument("--sweep", action="store_true",
@@ -470,9 +466,8 @@ def main():
                 "use_heuristic": not args.no_heuristic,
                 "use_deterministic_rollout": args.deterministic,
                 "use_combined_actions": not args.separate,
-                "cat_weight": args.cat_weight,
-                "goal_weight": args.goal_weight,
-                "button_weight": args.button_weight,
+                "cat_ratio": args.cat_ratio,
+                "button_ratio": args.button_ratio,
             }
 
             results, game_record_files, seeds_used = run_benchmark(
@@ -487,9 +482,8 @@ def main():
                 record=not args.no_record,
                 seeds=seeds,
                 workers=args.workers,
-                cat_weight=args.cat_weight,
-                goal_weight=args.goal_weight,
-                button_weight=args.button_weight,
+                cat_ratio=args.cat_ratio,
+                button_ratio=args.button_ratio,
             )
 
             print(f"\nResults: mean={results['mcts_mean']:.1f}, "
@@ -510,9 +504,8 @@ def main():
             "use_heuristic": not args.no_heuristic,
             "use_deterministic_rollout": args.deterministic,
             "use_combined_actions": not args.separate,
-            "cat_weight": args.cat_weight,
-            "goal_weight": args.goal_weight,
-            "button_weight": args.button_weight,
+            "cat_ratio": args.cat_ratio,
+            "button_ratio": args.button_ratio,
         }
 
         results, game_record_files, seeds_used = run_benchmark(
@@ -527,9 +520,8 @@ def main():
             record=not args.no_record,
             seeds=seeds,
             workers=args.workers,
-            cat_weight=args.cat_weight,
-            goal_weight=args.goal_weight,
-            button_weight=args.button_weight,
+            cat_ratio=args.cat_ratio,
+            button_ratio=args.button_ratio,
         )
 
         # Print summary
