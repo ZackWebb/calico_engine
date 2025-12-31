@@ -6,7 +6,7 @@ import pygame
 import numpy as np
 import hexy as hx
 import os
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 
 from game_record import GameRecord, DecisionRecord, TileRecord
 from tile import Tile, Color, Pattern
@@ -309,9 +309,35 @@ class ReplayVisualizer:
             return self.record.decisions[self.current_step]
         return None
 
+    def is_final_step(self) -> bool:
+        """Check if we're on the final step showing completed board."""
+        return self.current_step == len(self.record.decisions)
+
+    def get_final_board_tiles(self) -> Dict[str, TileRecord]:
+        """
+        Get the completed board state after the last action is applied.
+        Returns board_tiles dict with the final tile placement included.
+        """
+        if not self.record.decisions:
+            return {}
+
+        last_decision = self.record.decisions[-1]
+        # Start with the board state before the last action
+        final_board = dict(last_decision.board_tiles)
+
+        # Apply the last action (place the tile on the board)
+        if last_decision.action_position is not None and last_decision.action_hand_index is not None:
+            pos = last_decision.action_position
+            key = f"{pos[0]},{pos[1]},{pos[2]}"
+            tile = last_decision.hand_tiles[last_decision.action_hand_index]
+            final_board[key] = tile
+
+        return final_board
+
     def step_forward(self):
-        """Move to next decision."""
-        if self.current_step < len(self.record.decisions) - 1:
+        """Move to next decision (includes final completed board step)."""
+        # Allow stepping to len(decisions) which shows completed board
+        if self.current_step < len(self.record.decisions):
             self.current_step += 1
 
     def step_backward(self):
@@ -324,8 +350,8 @@ class ReplayVisualizer:
         self.current_step = 0
 
     def jump_to_end(self):
-        """Jump to last decision."""
-        self.current_step = len(self.record.decisions) - 1
+        """Jump to final completed board."""
+        self.current_step = len(self.record.decisions)
 
     def handle_events(self) -> bool:
         """Handle pygame events. Returns False to quit."""
@@ -386,7 +412,7 @@ class ReplayVisualizer:
         if self.auto_play:
             now = pygame.time.get_ticks()
             if now - self.last_auto_step >= self.auto_play_delay:
-                if self.current_step < len(self.record.decisions) - 1:
+                if self.current_step < len(self.record.decisions):
                     self.step_forward()
                     self.last_auto_step = now
                 else:
@@ -402,14 +428,19 @@ class ReplayVisualizer:
         """Render the replay view."""
         self.screen.fill((245, 235, 220))  # Warm beige background
 
-        decision = self.get_current_decision()
-        if decision:
-            self._draw_board(decision)
-            self._draw_hand(decision)
-            self._draw_market(decision)
-            self._draw_action_info(decision)
-            if self.show_candidates:
-                self._draw_candidates(decision)
+        if self.is_final_step():
+            # Final step: show completed board
+            self._draw_final_board()
+            self._draw_final_info()
+        else:
+            decision = self.get_current_decision()
+            if decision:
+                self._draw_board(decision)
+                self._draw_hand(decision)
+                self._draw_market(decision)
+                self._draw_action_info(decision)
+                if self.show_candidates:
+                    self._draw_candidates(decision)
 
         self._draw_goal_info()
         self._draw_cats()
@@ -525,6 +556,64 @@ class ReplayVisualizer:
                 text = self.font.render(label, True, (0, 0, 0))
                 text_rect = text.get_rect(center=pos.astype(int))
                 self.screen.blit(text, text_rect)
+
+    def _draw_final_board(self):
+        """Draw the completed board after the last tile is placed."""
+        board_tiles = self.get_final_board_tiles()
+        all_positions = self._get_all_board_positions()
+
+        for hex_coord in all_positions:
+            hex_coord_array = np.array([hex_coord])
+            pixel = hx.cube_to_pixel(hex_coord_array, self.hex_radius)[0]
+            pos = pixel + self.center
+
+            key_str = f"{hex_coord[0]},{hex_coord[1]},{hex_coord[2]}"
+            if key_str in board_tiles:
+                tile_record = board_tiles[key_str]
+                tile_key = self._tile_record_to_key(tile_record)
+                if tile_key in self.tile_images:
+                    self.screen.blit(
+                        self.tile_images[tile_key],
+                        pos - np.array([self.hex_radius, self.hex_radius])
+                    )
+            else:
+                # Draw empty hex (should not happen on completed board)
+                pygame.draw.circle(self.screen, (180, 180, 180), pos.astype(int), self.hex_radius, 2)
+
+        # Draw goal tiles
+        self._draw_goal_tiles()
+
+    def _draw_final_info(self):
+        """Draw info for the final completed board step."""
+        x, y = self.action_info_position
+
+        # Header
+        label = self.large_font.render("Game Complete!", True, (0, 150, 0))
+        self.screen.blit(label, (x, y))
+
+        y += int(35 * self.scale)
+
+        # Show what happened on the last turn
+        if self.record.decisions:
+            last_decision = self.record.decisions[-1]
+            if last_decision.action_position is not None and last_decision.action_hand_index is not None:
+                hand_tile = last_decision.hand_tiles[last_decision.action_hand_index]
+                pos_display = rowcol_to_display(tuple(last_decision.action_position))
+                text = f"Final tile: {hand_tile.color} {hand_tile.pattern}"
+                surface = self.font.render(text, True, (80, 80, 80))
+                self.screen.blit(surface, (x, y))
+
+                y += int(22 * self.scale)
+                pos_text = f"placed at {pos_display}"
+                pos_surface = self.font.render(pos_text, True, (100, 100, 100))
+                self.screen.blit(pos_surface, (x, y))
+
+        y += int(35 * self.scale)
+
+        # Final score reminder
+        score_text = f"Final Score: {self.record.final_score}"
+        score_surface = self.large_font.render(score_text, True, (0, 100, 0))
+        self.screen.blit(score_surface, (x, y))
 
     def _draw_hand(self, decision: DecisionRecord):
         """Draw player's hand tiles at current state."""
@@ -779,23 +868,37 @@ class ReplayVisualizer:
     def _draw_status(self):
         """Draw status message."""
         x, y = self.status_position
-        decision = self.get_current_decision()
 
-        if decision:
-            # Step info
-            step_text = f"Step {self.current_step + 1} / {len(self.record.decisions)}"
-            step_surface = self.large_font.render(step_text, True, (0, 0, 150))
+        # Total steps includes decisions + 1 for final completed board
+        total_steps = len(self.record.decisions) + 1
+
+        if self.is_final_step():
+            # Final step - completed board
+            step_text = f"Step {total_steps} / {total_steps} (Complete)"
+            step_surface = self.large_font.render(step_text, True, (0, 150, 0))
             self.screen.blit(step_surface, (x, y))
 
-            # Turn and phase
-            turn_text = f"Turn {decision.turn_number} - {decision.phase}"
-            turn_surface = self.font.render(turn_text, True, (80, 80, 80))
-            self.screen.blit(turn_surface, (x, y + int(30 * self.scale)))
+            # Final status
+            status_text = "Board Complete - All tiles placed"
+            status_surface = self.font.render(status_text, True, (0, 100, 0))
+            self.screen.blit(status_surface, (x, y + int(30 * self.scale)))
+        else:
+            decision = self.get_current_decision()
+            if decision:
+                # Step info
+                step_text = f"Step {self.current_step + 1} / {total_steps}"
+                step_surface = self.large_font.render(step_text, True, (0, 0, 150))
+                self.screen.blit(step_surface, (x, y))
 
-            # Tiles remaining
-            remaining_text = f"Tiles remaining: {decision.tiles_remaining}"
-            remaining_surface = self.font.render(remaining_text, True, (80, 80, 80))
-            self.screen.blit(remaining_surface, (x, y + int(50 * self.scale)))
+                # Turn and phase
+                turn_text = f"Turn {decision.turn_number} - {decision.phase}"
+                turn_surface = self.font.render(turn_text, True, (80, 80, 80))
+                self.screen.blit(turn_surface, (x, y + int(30 * self.scale)))
+
+                # Tiles remaining
+                remaining_text = f"Tiles remaining: {decision.tiles_remaining}"
+                remaining_surface = self.font.render(remaining_text, True, (80, 80, 80))
+                self.screen.blit(remaining_surface, (x, y + int(50 * self.scale)))
 
     def _draw_navigation_info(self):
         """Draw navigation state."""
