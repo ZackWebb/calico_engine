@@ -16,6 +16,15 @@ class TileBag:
     def shuffle(self):
         random.shuffle(self.tiles)
 
+    def shuffle_remaining(self):
+        """
+        Shuffle remaining tiles in the bag.
+
+        Used for chance node sampling in MCTS - each simulation explores
+        a different possible future by randomizing the unknown tile order.
+        """
+        random.shuffle(self.tiles)
+
     def draw_tile(self):
         if self.tiles:
             return self.tiles.pop()

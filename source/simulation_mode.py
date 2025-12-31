@@ -30,9 +30,15 @@ class SimulationMode(GameMode):
     def copy(self) -> 'SimulationMode':
         """
         Create a deep copy of this game for simulation/lookahead.
-        Essential for MCMC agent to explore possible futures.
+        Essential for MCTS agent to explore possible futures.
+
+        Implements chance node sampling by shuffling remaining tiles in the
+        copied bag. This ensures each simulation explores a different possible
+        future, rather than "cheating" by knowing the exact tile order.
         """
-        return copy.deepcopy(self)
+        copied = copy.deepcopy(self)
+        copied.market.tile_bag.shuffle_remaining()
+        return copied
 
     def get_action_history(self) -> List[Action]:
         """Return history of all actions taken."""
