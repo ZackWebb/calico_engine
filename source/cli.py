@@ -388,6 +388,9 @@ def benchmark(
     no_mlflow: bool = typer.Option(False, "--no-mlflow", help="Skip MLflow logging"),
     no_record: bool = typer.Option(False, "--no-record", help="Disable game recording (default: enabled)"),
     seeds: Optional[str] = typer.Option(None, "--seeds", help="Seeds for reproducibility: '0-9', 'fixed', or '0,5,10'"),
+    cat_weight: float = typer.Option(1.0, "--cat-weight", help="Weight for cat scoring in heuristic"),
+    goal_weight: float = typer.Option(1.0, "--goal-weight", help="Weight for goal scoring in heuristic"),
+    button_weight: float = typer.Option(1.0, "--button-weight", help="Weight for button scoring in heuristic"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """
@@ -432,6 +435,12 @@ def benchmark(
         cmd.append("--no-record")
     if seeds:
         cmd.extend(["--seeds", seeds])
+    if cat_weight != 1.0:
+        cmd.extend(["--cat-weight", str(cat_weight)])
+    if goal_weight != 1.0:
+        cmd.extend(["--goal-weight", str(goal_weight)])
+    if button_weight != 1.0:
+        cmd.extend(["--button-weight", str(button_weight)])
     if verbose:
         cmd.append("-v")
 

@@ -34,6 +34,7 @@ from board_configurations import BOARD_1
 from mcts_agent import MCTSAgent
 from game_record import GameRecorder, GameRecord
 from run_mcts import save_game_record
+from heuristic import HeuristicConfig
 
 
 def get_git_info() -> Dict[str, str]:
@@ -147,10 +148,15 @@ def _run_game_worker(args: Tuple) -> Dict[str, Any]:
     Worker function for parallel game execution.
     Creates its own agent instance since agents can't be pickled across processes.
 
-    Args is a tuple of (seed, agent_config, record)
+    Args is a tuple of (seed, agent_config, record, heuristic_config_dict)
     Returns dict with game results.
     """
-    seed, agent_config, record = args
+    seed, agent_config, record, heuristic_config_dict = args
+
+    # Recreate HeuristicConfig in this process (config is passed as dict for pickling)
+    heuristic_config = None
+    if heuristic_config_dict:
+        heuristic_config = HeuristicConfig(**heuristic_config_dict)
 
     # Create agent in this process
     agent = MCTSAgent(
@@ -160,6 +166,7 @@ def _run_game_worker(args: Tuple) -> Dict[str, Any]:
         use_heuristic=agent_config["use_heuristic"],
         use_deterministic_rollout=agent_config["use_deterministic_rollout"],
         use_combined_actions=agent_config["use_combined_actions"],
+        heuristic_config=heuristic_config,
         verbose=False
     )
 
@@ -201,7 +208,10 @@ def run_benchmark(
     record: bool = True,
     tags: Dict[str, str] = None,
     seeds: Optional[List[int]] = None,
-    workers: int = 4
+    workers: int = 4,
+    cat_weight: float = 1.0,
+    goal_weight: float = 1.0,
+    button_weight: float = 1.0,
 ) -> Tuple[Dict[str, Any], List[str], Optional[List[int]]]:
     """
     Run benchmark and log to MLflow.
@@ -210,6 +220,9 @@ def run_benchmark(
         seeds: Optional list of seeds for reproducibility. If provided, must have
                length >= n_games. Each game uses the corresponding seed.
         workers: Number of parallel workers (default 4). Set to 1 for sequential.
+        cat_weight: Weight for cat scoring in heuristic (default 1.0)
+        goal_weight: Weight for goal scoring in heuristic (default 1.0)
+        button_weight: Weight for button scoring in heuristic (default 1.0)
 
     Returns (results dict, list of game record filenames, seeds used).
     """
@@ -221,6 +234,13 @@ def run_benchmark(
         "use_heuristic": use_heuristic,
         "use_deterministic_rollout": use_deterministic_rollout,
         "use_combined_actions": use_combined_actions,
+    }
+
+    # Heuristic config (passed as dict for pickling across processes)
+    heuristic_config_dict = {
+        "cat_weight": cat_weight,
+        "goal_weight": goal_weight,
+        "button_weight": button_weight,
     }
 
     # Resolve seeds - default to 0-(n_games-1) if not specified
@@ -250,10 +270,12 @@ def run_benchmark(
     print(f"  Combined actions: {use_combined_actions}")
     print(f"  Recording: {record}")
     print(f"  Seeds: {seeds_used[0]}-{seeds_used[-1]}")
+    if cat_weight != 1.0 or goal_weight != 1.0 or button_weight != 1.0:
+        print(f"  Weights: cat={cat_weight}, goal={goal_weight}, button={button_weight}")
     print()
 
     # Prepare work items
-    work_items = [(seed, agent_config, record) for seed in seeds_used]
+    work_items = [(seed, agent_config, record, heuristic_config_dict) for seed in seeds_used]
 
     if workers == 1:
         # Sequential execution (useful for debugging)
@@ -396,6 +418,14 @@ def main():
     parser.add_argument("-w", "--workers", type=int, default=4,
                        help="Number of parallel workers (default: 4, use 1 for sequential)")
 
+    # Heuristic weights
+    parser.add_argument("--cat-weight", type=float, default=1.0,
+                       help="Weight for cat scoring in heuristic (default: 1.0)")
+    parser.add_argument("--goal-weight", type=float, default=1.0,
+                       help="Weight for goal scoring in heuristic (default: 1.0)")
+    parser.add_argument("--button-weight", type=float, default=1.0,
+                       help="Weight for button scoring in heuristic (default: 1.0)")
+
     # Special modes
     parser.add_argument("--sweep", action="store_true",
                        help="Run parameter sweep across iterations")
@@ -440,6 +470,9 @@ def main():
                 "use_heuristic": not args.no_heuristic,
                 "use_deterministic_rollout": args.deterministic,
                 "use_combined_actions": not args.separate,
+                "cat_weight": args.cat_weight,
+                "goal_weight": args.goal_weight,
+                "button_weight": args.button_weight,
             }
 
             results, game_record_files, seeds_used = run_benchmark(
@@ -454,6 +487,9 @@ def main():
                 record=not args.no_record,
                 seeds=seeds,
                 workers=args.workers,
+                cat_weight=args.cat_weight,
+                goal_weight=args.goal_weight,
+                button_weight=args.button_weight,
             )
 
             print(f"\nResults: mean={results['mcts_mean']:.1f}, "
@@ -474,6 +510,9 @@ def main():
             "use_heuristic": not args.no_heuristic,
             "use_deterministic_rollout": args.deterministic,
             "use_combined_actions": not args.separate,
+            "cat_weight": args.cat_weight,
+            "goal_weight": args.goal_weight,
+            "button_weight": args.button_weight,
         }
 
         results, game_record_files, seeds_used = run_benchmark(
@@ -488,6 +527,9 @@ def main():
             record=not args.no_record,
             seeds=seeds,
             workers=args.workers,
+            cat_weight=args.cat_weight,
+            goal_weight=args.goal_weight,
+            button_weight=args.button_weight,
         )
 
         # Print summary

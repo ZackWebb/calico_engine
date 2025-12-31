@@ -7,10 +7,13 @@ Supports hybrid evaluation: heuristic for early game, full rollouts for late gam
 import math
 import random
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from simulation_mode import SimulationMode
 from game_state import Action
+
+if TYPE_CHECKING:
+    from heuristic import HeuristicConfig
 
 
 @dataclass
@@ -92,6 +95,7 @@ class MCTSAgent:
         use_heuristic: Whether to use heuristic evaluation in early/mid game
         use_deterministic_rollout: Use greedy heuristic rollouts instead of random
         use_combined_actions: Use combined place_and_choose actions (atomic turns)
+        heuristic_config: Configuration for heuristic weights (cat/goal/button weights)
         verbose: Print debug information
     """
 
@@ -103,6 +107,7 @@ class MCTSAgent:
         use_heuristic: bool = True,
         use_deterministic_rollout: bool = False,
         use_combined_actions: bool = True,
+        heuristic_config: 'HeuristicConfig' = None,
         verbose: bool = False
     ):
         self.exploration_constant = exploration_constant
@@ -111,21 +116,31 @@ class MCTSAgent:
         self.use_heuristic = use_heuristic
         self.use_deterministic_rollout = use_deterministic_rollout
         self.use_combined_actions = use_combined_actions
+        self.heuristic_config = heuristic_config
         self.verbose = verbose
 
         # Import heuristic lazily to avoid circular imports
-        self._heuristic = None
+        self._heuristic_func = None
 
     def _get_heuristic(self):
-        """Lazy load heuristic module."""
-        if self._heuristic is None:
+        """Lazy load heuristic module and return evaluation function."""
+        if self._heuristic_func is None:
             try:
-                from heuristic import evaluate_state
-                self._heuristic = evaluate_state
+                from heuristic import evaluate_state, DEFAULT_HEURISTIC_CONFIG
+                # Store the actual function
+                self._heuristic_func = evaluate_state
+                # Use provided config or default
+                if self.heuristic_config is None:
+                    self.heuristic_config = DEFAULT_HEURISTIC_CONFIG
             except ImportError:
                 # Fall back to simple current score if heuristic not available
-                self._heuristic = lambda game: float(game.get_final_score())
-        return self._heuristic
+                self._heuristic_func = lambda game, config=None: float(game.get_final_score())
+        return self._heuristic_func
+
+    def _evaluate_state(self, state: SimulationMode) -> float:
+        """Evaluate a state using the heuristic with configured weights."""
+        evaluate = self._get_heuristic()
+        return evaluate(state, self.heuristic_config)
 
     def select_action(self, game: SimulationMode) -> Action:
         """
@@ -276,7 +291,6 @@ class MCTSAgent:
         rollouts but slower.
         """
         state_copy = state.copy()
-        evaluate = self._get_heuristic()
 
         while not state_copy.is_game_over():
             # Use combined actions if configured
@@ -294,7 +308,7 @@ class MCTSAgent:
             for action in actions:
                 test_state = state_copy.copy()
                 test_state.apply_action(action)
-                score = evaluate(test_state)
+                score = self._evaluate_state(test_state)
 
                 if score > best_score:
                     best_score = score
@@ -305,9 +319,8 @@ class MCTSAgent:
         return float(state_copy.get_final_score())
 
     def _heuristic_evaluate(self, state: SimulationMode) -> float:
-        """Evaluate state using heuristic function."""
-        evaluate = self._get_heuristic()
-        return evaluate(state)
+        """Evaluate state using heuristic function with configured weights."""
+        return self._evaluate_state(state)
 
     def _backpropagate(self, node: MCTSNode, score: float) -> None:
         """Update visit counts and scores up the tree."""

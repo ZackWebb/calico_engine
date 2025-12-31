@@ -5,6 +5,7 @@ Estimates the final score from a partial game state by:
 1. Counting current scoring (cats, goals, buttons)
 2. Adding potential points for near-complete patterns
 """
+from dataclasses import dataclass
 from typing import List, Set, Tuple, Optional
 from collections import Counter
 from functools import lru_cache
@@ -12,6 +13,23 @@ from functools import lru_cache
 from hex_grid import HexGrid, Pattern, Color
 from cat import Cat, CatMillie, CatLeo, CatRumi
 from button import score_buttons, count_buttons_by_color
+
+
+@dataclass
+class HeuristicConfig:
+    """Configuration for heuristic weights - enables strategy tuning via benchmarks."""
+    # Top-level weights for each scoring category
+    cat_weight: float = 1.0
+    goal_weight: float = 1.0
+    button_weight: float = 1.0
+
+    # Sub-weights for fine-tuning
+    goal_discount: float = 0.4  # Discount factor for incomplete goals
+    rainbow_progress_bonus: float = 1.5  # Bonus when all 6 colors show button potential
+
+
+# Default configuration
+DEFAULT_HEURISTIC_CONFIG = HeuristicConfig()
 
 
 # Decay factors for overlapping lines - more complete lines have higher backup value
@@ -259,22 +277,26 @@ def evaluate_millie_potential(grid: HexGrid, pattern: Pattern, point_value: int)
     return potential
 
 
-def evaluate_state(game) -> float:
+def evaluate_state(game, config: HeuristicConfig = None) -> float:
     """
     Estimate final score from current game state.
 
     Args:
         game: SimulationMode instance
+        config: HeuristicConfig for weight tuning (uses defaults if None)
 
     Returns:
         Estimated final score as float
     """
+    if config is None:
+        config = DEFAULT_HEURISTIC_CONFIG
+
     grid = game.player.grid
 
     score = 0.0
-    score += evaluate_cats(game)
-    score += evaluate_goals(game)
-    score += evaluate_buttons(grid)
+    score += config.cat_weight * evaluate_cats(game)
+    score += config.goal_weight * evaluate_goals(game, config)
+    score += config.button_weight * evaluate_buttons(grid, config)
 
     return score
 
@@ -329,10 +351,13 @@ def estimate_cat_potential(grid: HexGrid, cat: Cat) -> float:
     return 0.0
 
 
-def evaluate_goals(game) -> float:
+def evaluate_goals(game, config: HeuristicConfig = None) -> float:
     """
     Evaluate goal scoring: current score plus potential from partial progress.
     """
+    if config is None:
+        config = DEFAULT_HEURISTIC_CONFIG
+
     grid = game.player.grid
     total = 0.0
 
@@ -343,13 +368,13 @@ def evaluate_goals(game) -> float:
 
         # If not fully scored, estimate potential
         if actual == 0:
-            potential = estimate_goal_potential(grid, goal)
+            potential = estimate_goal_potential(grid, goal, config)
             total += potential
 
     return total
 
 
-def estimate_goal_potential(grid: HexGrid, goal) -> float:
+def estimate_goal_potential(grid: HexGrid, goal, config: HeuristicConfig = None) -> float:
     """
     Estimate potential for a goal based on filled neighbors.
 
@@ -362,6 +387,9 @@ def estimate_goal_potential(grid: HexGrid, goal) -> float:
     - If color becomes impossible (progress=0), double_potential=0, falls back to single
     - If both impossible, both potentials=0
     """
+    if config is None:
+        config = DEFAULT_HEURISTIC_CONFIG
+
     tiles = goal.get_neighbor_tiles(grid)
     filled_count = len(tiles)
 
@@ -401,8 +429,7 @@ def estimate_goal_potential(grid: HexGrid, goal) -> float:
     best_potential = max(single_potential, double_potential)
 
     # Scale by completion ratio and discount factor
-    discount = 0.4  # Don't overvalue incomplete goals
-    return best_potential * completion_ratio * discount
+    return best_potential * completion_ratio * config.goal_discount
 
 
 def check_3_3_progress(tiles) -> float:
@@ -553,28 +580,53 @@ def _check_unique_for_values(values) -> float:
     return unique_count / 6.0
 
 
-def evaluate_buttons(grid: HexGrid) -> float:
+def evaluate_buttons(grid: HexGrid, config: HeuristicConfig = None) -> float:
     """
     Evaluate button scoring: current score plus potential from color pairs.
+
+    Includes rainbow progress scoring - gives credit for colors that have
+    pairs (potential buttons) even before the button is complete.
     """
+    if config is None:
+        config = DEFAULT_HEURISTIC_CONFIG
+
     # Current button score
     current_score = score_buttons(grid)
 
     # Potential from color pairs (adjacent same-color not yet in button)
     pair_potential = 0.0
+    colors_with_pairs = 0
     for color in Color:
         pairs = count_color_pairs(grid, color)
         pair_potential += pairs * 1.0  # Each pair worth ~1 potential point
+        if pairs > 0:
+            colors_with_pairs += 1
 
-    # Rainbow potential
+    # Rainbow potential based on completed buttons
     button_counts = count_buttons_by_color(grid)
     colors_with_buttons = sum(1 for count in button_counts.values() if count >= 1)
 
+    # Count colors with button potential (completed OR have pairs)
+    colors_with_potential = colors_with_buttons
+    for color in Color:
+        if button_counts.get(color, 0) == 0:  # No completed button yet
+            if count_color_pairs(grid, color) > 0:
+                colors_with_potential += 1
+
+    # Scale rainbow potential based on completed buttons
     rainbow_potential = 0.0
     if colors_with_buttons >= 5:
-        rainbow_potential = 4.0  # Close to rainbow bonus
+        rainbow_potential = 4.5  # Very close to 5 pts
     elif colors_with_buttons >= 4:
-        rainbow_potential = 2.5
+        rainbow_potential = 3.5
+    elif colors_with_buttons >= 3:
+        rainbow_potential = 2.0
+
+    # Add potential-based rainbow bonus (colors with pairs count toward rainbow)
+    if colors_with_potential >= 6 and colors_with_buttons < 6:
+        rainbow_potential += config.rainbow_progress_bonus  # All 6 colors have progress
+    elif colors_with_potential >= 5 and colors_with_buttons < 5:
+        rainbow_potential += config.rainbow_progress_bonus * 0.67  # 5 colors have progress
 
     return current_score + pair_potential + rainbow_potential
 
