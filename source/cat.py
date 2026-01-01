@@ -1,7 +1,7 @@
 import random
 from typing import List, Tuple, Set, FrozenSet
 from abc import ABC, abstractmethod
-from hex_grid import Pattern, HexGrid, ALL_3_LINES, ALL_5_LINES
+from hex_grid import Pattern, HexGrid, ALL_3_LINES, ALL_4_LINES, ALL_5_LINES
 
 
 class Cat(ABC):
@@ -251,17 +251,60 @@ class CatRumi(Cat):
         return valid_groups
 
 
+class CatTecolote(Cat):
+    """
+    Tecolote: 4 tiles in a line, all the SAME pattern (must be one of her preferred patterns).
+    Scores 7 points per valid group.
+    """
+    def __init__(self):
+        super().__init__("Tecolote", 7, tuple(random.sample(list(Pattern), 2)))
+
+    def find_all_groups(self, grid: HexGrid, used_tiles: Set[Tuple[int, int, int]]) -> List[FrozenSet[Tuple[int, int, int]]]:
+        """Find all valid 4-tile lines using pre-computed line positions."""
+        valid_groups = []
+        all_used = used_tiles.copy()
+        grid_dict = grid.grid  # Local reference for speed
+
+        for pattern in self.patterns:
+            for line in ALL_4_LINES:
+                # Check first tile immediately - most lines will fail here
+                first_pos = line[0]
+                if first_pos in all_used:
+                    continue
+                first_tile = grid_dict.get(first_pos)
+                if not first_tile or first_tile.pattern != pattern:
+                    continue
+
+                # Check remaining tiles
+                valid = True
+                for pos in line[1:]:
+                    if pos in all_used:
+                        valid = False
+                        break
+                    tile = grid_dict.get(pos)
+                    if not tile or tile.pattern != pattern:
+                        valid = False
+                        break
+
+                if valid and not self._is_adjacent_to_used(grid, frozenset(line), all_used):
+                    group = frozenset(line)
+                    valid_groups.append(group)
+                    all_used.update(line)
+
+        return valid_groups
+
+
 # Cat buckets for random selection
 # Each game selects one cat from each bucket
 # Bucket 1: 4 cats including Millie (cluster-based scoring)
 # Bucket 2: 4 cats including Rumi (3-in-a-line scoring)
 # Bucket 3: 2 cats including Leo (5-in-a-line scoring)
 BUCKET_1 = [CatMillie]  # Will expand to 4 cats
-BUCKET_2 = [CatRumi]    # Will expand to 4 cats
+BUCKET_2 = [CatRumi, CatTecolote]  # Will expand to 4 cats
 BUCKET_3 = [CatLeo]     # Will expand to 2 cats
 
 # Legacy list for backwards compatibility
-ALL_CATS = [CatMillie, CatLeo, CatRumi]
+ALL_CATS = [CatMillie, CatLeo, CatRumi, CatTecolote]
 
 
 def initialize_game_cats(use_buckets: bool = True) -> Tuple[List[Cat], List[Pattern]]:

@@ -6,7 +6,7 @@ import pytest
 from source.hex_grid import HexGrid, Color, Pattern
 from source.tile import Tile
 from source.cat import (
-    initialize_game_cats, CatMillie, CatLeo, CatRumi,
+    initialize_game_cats, CatMillie, CatLeo, CatRumi, CatTecolote,
     BUCKET_1, BUCKET_2, BUCKET_3
 )
 
@@ -223,6 +223,96 @@ def test_rumi_condition_diagonal(game_setup, capsys):
     assert result, f"Rumi's diagonal condition should be met. Grid:\n{grid}"
 
 
+# --- Tecolote Tests ---
+
+@pytest.fixture
+def tecolote_setup():
+    """Create a Tecolote cat with known patterns for testing."""
+    tecolote = CatTecolote()
+    tecolote.patterns = (Pattern.DOTS, Pattern.STRIPES)
+    grid = HexGrid()
+    return tecolote, grid
+
+
+def test_tecolote_condition(tecolote_setup):
+    tecolote, grid = tecolote_setup
+    pattern = tecolote.patterns[0]
+
+    # Create a straight line of 4 tiles along east direction (1, 0, -1)
+    grid.set_tile(-1, 0, 1, Tile(Color.PINK, pattern))
+    grid.set_tile(0, 0, 0, Tile(Color.PINK, pattern))
+    grid.set_tile(1, 0, -1, Tile(Color.PINK, pattern))
+    grid.set_tile(2, 0, -2, Tile(Color.PINK, pattern))
+
+    assert tecolote.check_condition(grid)
+
+
+def test_tecolote_condition_not_met_only_3(tecolote_setup):
+    tecolote, grid = tecolote_setup
+    pattern = tecolote.patterns[0]
+
+    # Create a straight line of only 3 tiles (not enough for Tecolote)
+    grid.set_tile(-1, 0, 1, Tile(Color.PINK, pattern))
+    grid.set_tile(0, 0, 0, Tile(Color.PINK, pattern))
+    grid.set_tile(1, 0, -1, Tile(Color.PINK, pattern))
+
+    assert not tecolote.check_condition(grid)
+
+
+def test_tecolote_condition_interrupted(tecolote_setup):
+    tecolote, grid = tecolote_setup
+    pattern = tecolote.patterns[0]
+    other_pattern = Pattern.FLOWERS  # Different from tecolote's patterns
+
+    # Create a line of 4 tiles with an interruption in the middle
+    grid.set_tile(-1, 0, 1, Tile(Color.PINK, pattern))
+    grid.set_tile(0, 0, 0, Tile(Color.BLUE, other_pattern))  # Interruption
+    grid.set_tile(1, 0, -1, Tile(Color.PINK, pattern))
+    grid.set_tile(2, 0, -2, Tile(Color.PINK, pattern))
+
+    assert not tecolote.check_condition(grid)
+
+
+def test_tecolote_scores_7_points(tecolote_setup):
+    tecolote, grid = tecolote_setup
+    pattern = tecolote.patterns[0]
+
+    # Create a valid 4-tile line
+    grid.set_tile(-1, 0, 1, Tile(Color.PINK, pattern))
+    grid.set_tile(0, 0, 0, Tile(Color.PINK, pattern))
+    grid.set_tile(1, 0, -1, Tile(Color.PINK, pattern))
+    grid.set_tile(2, 0, -2, Tile(Color.PINK, pattern))
+
+    assert tecolote.score(grid) == 7
+
+
+def test_tecolote_diagonal(tecolote_setup):
+    tecolote, grid = tecolote_setup
+    pattern = tecolote.patterns[0]
+
+    # Create a diagonal line of 4 tiles along northeast direction (1, -1, 0)
+    grid.set_tile(-1, 1, 0, Tile(Color.BLUE, pattern))
+    grid.set_tile(0, 0, 0, Tile(Color.BLUE, pattern))
+    grid.set_tile(1, -1, 0, Tile(Color.BLUE, pattern))
+    grid.set_tile(2, -2, 0, Tile(Color.BLUE, pattern))
+
+    assert tecolote.check_condition(grid)
+
+
+def test_tecolote_wrong_pattern(tecolote_setup):
+    tecolote, grid = tecolote_setup
+    # Use a pattern that's NOT in tecolote's preferred patterns
+    wrong_pattern = Pattern.FLOWERS
+
+    # Create a valid 4-tile line but with wrong pattern
+    grid.set_tile(-1, 0, 1, Tile(Color.PINK, wrong_pattern))
+    grid.set_tile(0, 0, 0, Tile(Color.PINK, wrong_pattern))
+    grid.set_tile(1, 0, -1, Tile(Color.PINK, wrong_pattern))
+    grid.set_tile(2, 0, -2, Tile(Color.PINK, wrong_pattern))
+
+    assert not tecolote.check_condition(grid)
+
+
 # --- Bucket Selection Tests ---
 
 class TestBucketConfiguration:
@@ -235,6 +325,10 @@ class TestBucketConfiguration:
     def test_bucket_2_contains_rumi(self):
         """Bucket 2 should contain Rumi."""
         assert CatRumi in BUCKET_2
+
+    def test_bucket_2_contains_tecolote(self):
+        """Bucket 2 should contain Tecolote."""
+        assert CatTecolote in BUCKET_2
 
     def test_bucket_3_contains_leo(self):
         """Bucket 3 should contain Leo."""
@@ -295,11 +389,13 @@ class TestBucketSelection:
 
     def test_default_uses_bucket_selection(self):
         """Default should use bucket selection."""
-        # With only one cat per bucket currently, bucket selection
-        # will always return Millie, Rumi, Leo
+        # With bucket selection, we get one cat from each bucket
         cats, _ = initialize_game_cats()  # default
 
         cat_classes = [type(cat) for cat in cats]
-        assert CatMillie in cat_classes
-        assert CatRumi in cat_classes
-        assert CatLeo in cat_classes
+        # One from bucket 1 (Millie)
+        assert any(cat_class in BUCKET_1 for cat_class in cat_classes)
+        # One from bucket 2 (Rumi or Tecolote)
+        assert any(cat_class in BUCKET_2 for cat_class in cat_classes)
+        # One from bucket 3 (Leo)
+        assert any(cat_class in BUCKET_3 for cat_class in cat_classes)
