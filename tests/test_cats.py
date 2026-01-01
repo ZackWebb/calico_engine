@@ -33,10 +33,17 @@ def test_game_setup(game_setup):
     # Test that all patterns are accounted for
     assert set(all_cat_patterns + remaining_patterns) == set(Pattern)
 
-def test_millie_condition(game_setup):
-    cats, _, grid = game_setup
-    millie = next(cat for cat in cats if isinstance(cat, CatMillie))
+@pytest.fixture
+def millie_setup():
+    """Create a Millie cat with known patterns for testing."""
+    millie = CatMillie()
+    millie.patterns = (Pattern.DOTS, Pattern.STRIPES)
+    grid = HexGrid()
+    return millie, grid
 
+
+def test_millie_condition(millie_setup):
+    millie, grid = millie_setup
     pattern = millie.patterns[0]
 
     # Place 3 adjacent tiles with matching pattern (cube coordinates)
@@ -46,11 +53,11 @@ def test_millie_condition(game_setup):
 
     assert millie.check_condition(grid)
 
-def test_millie_condition_not_met(game_setup):
-    cats, remaining_patterns, grid = game_setup
-    millie = next(cat for cat in cats if isinstance(cat, CatMillie))
 
-    wrong_pattern = next(p for p in Pattern if p not in millie.patterns)
+def test_millie_condition_not_met(millie_setup):
+    millie, grid = millie_setup
+    # Use a pattern that's NOT in millie's preferred patterns
+    wrong_pattern = Pattern.FLOWERS
 
     # Place 3 adjacent tiles with wrong pattern (cube coordinates)
     grid.set_tile(0, 0, 0, Tile(Color.PINK, wrong_pattern))
@@ -60,12 +67,17 @@ def test_millie_condition_not_met(game_setup):
     assert not millie.check_condition(grid)
 
 
-def test_leo_condition(game_setup):
-    cats, _, grid = game_setup
-    leo = next((cat for cat in cats if isinstance(cat, CatLeo)), None)
-    if not leo:
-        pytest.skip("Leo was not randomly selected for this test.")
+@pytest.fixture
+def leo_setup():
+    """Create a Leo cat with known patterns for testing."""
+    leo = CatLeo()
+    leo.patterns = (Pattern.DOTS, Pattern.STRIPES)
+    grid = HexGrid()
+    return leo, grid
 
+
+def test_leo_condition(leo_setup):
+    leo, grid = leo_setup
     pattern = leo.patterns[0]
 
     # Create a straight line of 5 tiles along east direction (cube coordinates)
@@ -78,12 +90,9 @@ def test_leo_condition(game_setup):
 
     assert leo.check_condition(grid)
 
-def test_leo_condition_not_met(game_setup):
-    cats, _, grid = game_setup
-    leo = next((cat for cat in cats if isinstance(cat, CatLeo)), None)
-    if not leo:
-        pytest.skip("Leo was not randomly selected for this test.")
 
+def test_leo_condition_not_met(leo_setup):
+    leo, grid = leo_setup
     pattern = leo.patterns[0]
 
     # Create a straight line of only 4 tiles (not enough for Leo)
@@ -94,14 +103,11 @@ def test_leo_condition_not_met(game_setup):
 
     assert not leo.check_condition(grid)
 
-def test_leo_condition_interrupted(game_setup):
-    cats, _, grid = game_setup
-    leo = next((cat for cat in cats if isinstance(cat, CatLeo)), None)
-    if not leo:
-        pytest.skip("Leo was not randomly selected for this test.")
 
+def test_leo_condition_interrupted(leo_setup):
+    leo, grid = leo_setup
     pattern = leo.patterns[0]
-    other_pattern = next(p for p in Pattern if p != pattern)
+    other_pattern = Pattern.FLOWERS  # Different from leo's patterns
 
     # Create a line of 5 tiles with an interruption in the middle
     grid.set_tile(-2, 0, 2, Tile(Color.PINK, pattern))
@@ -112,16 +118,10 @@ def test_leo_condition_interrupted(game_setup):
 
     assert not leo.check_condition(grid)
 
-def test_leo_condition_diagonal(game_setup, capsys):
-    cats, _, grid = game_setup
-    leo = next((cat for cat in cats if isinstance(cat, CatLeo)), None)
-    if not leo:
-        pytest.skip("Leo was not randomly selected for this test.")
 
+def test_leo_condition_diagonal(leo_setup):
+    leo, grid = leo_setup
     pattern = leo.patterns[0]
-
-    print(f"\nLeo's patterns: {leo.patterns}")
-    print(f"Using pattern: {pattern}")
 
     # Create a diagonal line of 5 tiles along northeast direction (1, -1, 0)
     grid.set_tile(-2, 2, 0, Tile(Color.PINK, pattern))
@@ -130,20 +130,20 @@ def test_leo_condition_diagonal(game_setup, capsys):
     grid.set_tile(1, -1, 0, Tile(Color.PINK, pattern))
     grid.set_tile(2, -2, 0, Tile(Color.PINK, pattern))
 
-    print("\nGrid after setting diagonal tiles:")
-    print(grid)
+    assert leo.check_condition(grid)
 
-    result = leo.check_condition(grid)
-    print(f"\nLeo's condition met: {result}")
 
-    assert result, f"Leo's diagonal condition should be met. Grid:\n{grid}"
+@pytest.fixture
+def rumi_setup():
+    """Create a Rumi cat with known patterns for testing."""
+    rumi = CatRumi()
+    rumi.patterns = (Pattern.DOTS, Pattern.STRIPES)
+    grid = HexGrid()
+    return rumi, grid
 
-def test_rumi_condition(game_setup):
-    cats, _, grid = game_setup
-    rumi = next((cat for cat in cats if isinstance(cat, CatRumi)), None)
-    if not rumi:
-        pytest.skip("Rumi was not randomly selected for this test.")
 
+def test_rumi_condition(rumi_setup):
+    rumi, grid = rumi_setup
     pattern = rumi.patterns[0]
 
     # Create a straight line of 3 tiles (cube coordinates)
@@ -153,12 +153,9 @@ def test_rumi_condition(game_setup):
 
     assert rumi.check_condition(grid)
 
-def test_rumi_condition_not_met(game_setup):
-    cats, _, grid = game_setup
-    rumi = next((cat for cat in cats if isinstance(cat, CatRumi)), None)
-    if not rumi:
-        pytest.skip("Rumi was not randomly selected for this test.")
 
+def test_rumi_condition_not_met(rumi_setup):
+    rumi, grid = rumi_setup
     pattern = rumi.patterns[0]
 
     # Create a straight line of only 2 tiles (not enough for Rumi)
@@ -167,14 +164,11 @@ def test_rumi_condition_not_met(game_setup):
 
     assert not rumi.check_condition(grid)
 
-def test_rumi_condition_interrupted(game_setup):
-    cats, _, grid = game_setup
-    rumi = next((cat for cat in cats if isinstance(cat, CatRumi)), None)
-    if not rumi:
-        pytest.skip("Rumi was not randomly selected for this test.")
 
+def test_rumi_condition_interrupted(rumi_setup):
+    rumi, grid = rumi_setup
     pattern = rumi.patterns[0]
-    other_pattern = next(p for p in Pattern if p != pattern)
+    other_pattern = Pattern.FLOWERS  # Different from rumi's patterns
 
     # Create a line of 3 tiles with an interruption in the middle
     grid.set_tile(-1, 0, 1, Tile(Color.BLUE, pattern))
@@ -183,12 +177,9 @@ def test_rumi_condition_interrupted(game_setup):
 
     assert not rumi.check_condition(grid)
 
-def test_rumi_condition_vertical(game_setup):
-    cats, _, grid = game_setup
-    rumi = next((cat for cat in cats if isinstance(cat, CatRumi)), None)
-    if not rumi:
-        pytest.skip("Rumi was not randomly selected for this test.")
 
+def test_rumi_condition_vertical(rumi_setup):
+    rumi, grid = rumi_setup
     pattern = rumi.patterns[0]
 
     # Create a line of 3 tiles along northwest direction (0, -1, 1)
@@ -198,29 +189,17 @@ def test_rumi_condition_vertical(game_setup):
 
     assert rumi.check_condition(grid)
 
-def test_rumi_condition_diagonal(game_setup, capsys):
-    cats, _, grid = game_setup
-    rumi = next((cat for cat in cats if isinstance(cat, CatRumi)), None)
-    if not rumi:
-        pytest.skip("Rumi was not randomly selected for this test.")
 
+def test_rumi_condition_diagonal(rumi_setup):
+    rumi, grid = rumi_setup
     pattern = rumi.patterns[0]
-
-    print(f"\nRumi's patterns: {rumi.patterns}")
-    print(f"Using pattern: {pattern}")
 
     # Create a diagonal line of 3 tiles along northeast direction (1, -1, 0)
     grid.set_tile(-1, 1, 0, Tile(Color.BLUE, pattern))
     grid.set_tile(0, 0, 0, Tile(Color.BLUE, pattern))
     grid.set_tile(1, -1, 0, Tile(Color.BLUE, pattern))
 
-    print("\nGrid after setting diagonal tiles:")
-    print(grid)
-
-    result = rumi.check_condition(grid)
-    print(f"\nRumi's condition met: {result}")
-
-    assert result, f"Rumi's diagonal condition should be met. Grid:\n{grid}"
+    assert rumi.check_condition(grid)
 
 
 # --- Tecolote Tests ---
