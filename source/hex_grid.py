@@ -6,6 +6,63 @@ _HEX_DIRECTIONS = (
     (-1, 1, 0), (-1, 0, 1), (0, -1, 1)
 )
 
+# Line directions for cat scoring (only need 3 - opposite directions give same lines)
+_LINE_DIRECTIONS = (
+    (1, 0, -1),   # east
+    (1, -1, 0),   # northeast
+    (0, -1, 1),   # northwest
+)
+
+
+def _build_all_grid_positions():
+    """Build the set of all valid grid positions (matches HexGrid.initialize_grid)."""
+    positions = set()
+    # Main hex area
+    for q in range(-3, 4):
+        for r in range(-3, 4):
+            s = -q - r
+            if abs(s) <= 3:
+                positions.add((q, r, s))
+    # Extra coordinates
+    extras = [
+        (-1, 4), (-2, 4), (-3, 4),
+        (4, -1), (4, -2),
+        (-4, 3), (-4, 2), (-4, 1),
+        (2, -4), (1, -4),
+    ]
+    for q, r in extras:
+        positions.add((q, r, -q - r))
+    return positions
+
+
+def _enumerate_lines(positions, length):
+    """
+    Enumerate all valid lines of given length on the hex grid.
+    Returns tuple of tuples, each inner tuple is a line (sequence of positions).
+    """
+    lines = []
+    for start in positions:
+        q, r, s = start
+        for dq, dr, ds in _LINE_DIRECTIONS:
+            line = []
+            valid = True
+            for i in range(length):
+                pos = (q + dq * i, r + dr * i, s + ds * i)
+                if pos not in positions:
+                    valid = False
+                    break
+                line.append(pos)
+            if valid:
+                lines.append(tuple(line))
+    return tuple(lines)
+
+
+# Pre-compute all valid lines at module load time
+_ALL_POSITIONS = _build_all_grid_positions()
+ALL_3_LINES = _enumerate_lines(_ALL_POSITIONS, 3)  # For Rumi (5 pts)
+ALL_4_LINES = _enumerate_lines(_ALL_POSITIONS, 4)  # For future cat
+ALL_5_LINES = _enumerate_lines(_ALL_POSITIONS, 5)  # For Leo (11 pts)
+
 class HexGrid:
     __slots__ = ('grid', 'goal_positions', '_neighbor_cache', '_all_positions_cache')
 

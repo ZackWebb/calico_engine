@@ -1,7 +1,7 @@
 import random
 from typing import List, Tuple, Set, FrozenSet
 from abc import ABC, abstractmethod
-from hex_grid import Pattern, HexGrid
+from hex_grid import Pattern, HexGrid, ALL_3_LINES, ALL_5_LINES
 
 
 class Cat(ABC):
@@ -88,13 +88,13 @@ class CatMillie(Cat):
                               used_tiles: Set[Tuple[int, int, int]]) -> List[FrozenSet[Tuple[int, int, int]]]:
         """Find all valid 3-tile clusters of a specific pattern."""
         groups = []
-        checked_starts = set()
+        grid_dict = grid.grid  # Local reference for speed
 
         for pos in grid.all_positions:
-            if pos in used_tiles or pos in checked_starts:
+            if pos in used_tiles:
                 continue
 
-            tile = grid.grid.get(pos)
+            tile = grid_dict.get(pos)
             if not tile or tile.pattern != pattern:
                 continue
 
@@ -114,14 +114,16 @@ class CatMillie(Cat):
                             pattern: Pattern, used_tiles: Set[Tuple[int, int, int]]) -> List[FrozenSet[Tuple[int, int, int]]]:
         """Find all valid 3-tile clusters starting from a position."""
         results = []
-        self._dfs_cluster(grid, start, pattern, used_tiles, set(), results)
+        self._dfs_cluster(grid, start, pattern, used_tiles, [], results)
         return results
 
     def _dfs_cluster(self, grid: HexGrid, pos: Tuple[int, int, int], pattern: Pattern,
-                     used_tiles: Set[Tuple[int, int, int]], current: Set[Tuple[int, int, int]],
+                     used_tiles: Set[Tuple[int, int, int]], current: List[Tuple[int, int, int]],
                      results: List[FrozenSet[Tuple[int, int, int]]]):
-        """DFS to find 3-tile clusters."""
-        if pos in used_tiles or pos in current:
+        """DFS to find 3-tile clusters. Uses mutable list to avoid set copies."""
+        if pos in used_tiles:
+            return
+        if pos in current:
             return
         if pos not in grid.grid:
             return
@@ -130,25 +132,32 @@ class CatMillie(Cat):
         if not tile or tile.pattern != pattern:
             return
 
-        current = current | {pos}
+        current.append(pos)
 
         if len(current) == 3:
             # Verify all 3 are connected (each adjacent to at least one other)
             if self._is_connected_cluster(grid, current):
                 results.append(frozenset(current))
+            current.pop()
             return
 
         # Expand to neighbors
         for neighbor in grid.get_neighbors(*pos):
             self._dfs_cluster(grid, neighbor, pattern, used_tiles, current, results)
 
-    def _is_connected_cluster(self, grid: HexGrid, positions: Set[Tuple[int, int, int]]) -> bool:
+        current.pop()
+
+    def _is_connected_cluster(self, grid: HexGrid, positions) -> bool:
         """Check that all positions form a connected cluster."""
         positions = list(positions)
         for i, p1 in enumerate(positions):
-            neighbors = set(grid.get_neighbors(*p1))
-            other_positions = set(positions[:i] + positions[i+1:])
-            if not neighbors & other_positions:
+            neighbors = grid.get_neighbors(*p1)
+            has_connection = False
+            for j, p2 in enumerate(positions):
+                if i != j and p2 in neighbors:
+                    has_connection = True
+                    break
+            if not has_connection:
                 return False
         return True
 
@@ -162,49 +171,38 @@ class CatLeo(Cat):
         super().__init__("Leo", 11, tuple(random.sample(list(Pattern), 2)))
 
     def find_all_groups(self, grid: HexGrid, used_tiles: Set[Tuple[int, int, int]]) -> List[FrozenSet[Tuple[int, int, int]]]:
-        return self._find_lines(grid, used_tiles, required_count=5)
-
-    def _find_lines(self, grid: HexGrid, used_tiles: Set[Tuple[int, int, int]],
-                    required_count: int) -> List[FrozenSet[Tuple[int, int, int]]]:
-        """Find all valid lines of required_count tiles."""
-        directions = [
-            (1, 0, -1),   # east
-            (1, -1, 0),   # northeast
-            (0, -1, 1),   # northwest
-        ]
-
+        """Find all valid 5-tile lines using pre-computed line positions."""
         valid_groups = []
         all_used = used_tiles.copy()
+        grid_dict = grid.grid  # Local reference for speed
 
         for pattern in self.patterns:
-            for pos in grid.all_positions:
-                for direction in directions:
-                    line = self._get_line(grid, pos, direction, pattern, required_count, all_used)
-                    if line and not self._is_adjacent_to_used(grid, line, all_used):
-                        valid_groups.append(line)
-                        all_used.update(line)
+            for line in ALL_5_LINES:
+                # Check first tile immediately - most lines will fail here
+                first_pos = line[0]
+                if first_pos in all_used:
+                    continue
+                first_tile = grid_dict.get(first_pos)
+                if not first_tile or first_tile.pattern != pattern:
+                    continue
+
+                # Check remaining tiles
+                valid = True
+                for pos in line[1:]:
+                    if pos in all_used:
+                        valid = False
+                        break
+                    tile = grid_dict.get(pos)
+                    if not tile or tile.pattern != pattern:
+                        valid = False
+                        break
+
+                if valid and not self._is_adjacent_to_used(grid, frozenset(line), all_used):
+                    group = frozenset(line)
+                    valid_groups.append(group)
+                    all_used.update(line)
 
         return valid_groups
-
-    def _get_line(self, grid: HexGrid, start: Tuple[int, int, int], direction: Tuple[int, int, int],
-                  pattern: Pattern, required_count: int,
-                  used_tiles: Set[Tuple[int, int, int]]) -> FrozenSet[Tuple[int, int, int]] | None:
-        """Get a line of tiles if valid, None otherwise."""
-        positions = []
-        q, r, s = start
-        dq, dr, ds = direction
-
-        for _ in range(required_count):
-            pos = (q, r, s)
-            if pos not in grid.grid or pos in used_tiles:
-                return None
-            tile = grid.grid.get(pos)
-            if not tile or tile.pattern != pattern:
-                return None
-            positions.append(pos)
-            q, r, s = q + dq, r + dr, s + ds
-
-        return frozenset(positions)
 
     def __str__(self):
         return f"Leo (Points: {self.point_value}, Patterns: {self.patterns})"
@@ -219,49 +217,38 @@ class CatRumi(Cat):
         super().__init__("Rumi", 5, tuple(random.sample(list(Pattern), 2)))
 
     def find_all_groups(self, grid: HexGrid, used_tiles: Set[Tuple[int, int, int]]) -> List[FrozenSet[Tuple[int, int, int]]]:
-        return self._find_lines(grid, used_tiles, required_count=3)
-
-    def _find_lines(self, grid: HexGrid, used_tiles: Set[Tuple[int, int, int]],
-                    required_count: int) -> List[FrozenSet[Tuple[int, int, int]]]:
-        """Find all valid lines of required_count tiles."""
-        directions = [
-            (1, 0, -1),   # east
-            (1, -1, 0),   # northeast
-            (0, -1, 1),   # northwest
-        ]
-
+        """Find all valid 3-tile lines using pre-computed line positions."""
         valid_groups = []
         all_used = used_tiles.copy()
+        grid_dict = grid.grid  # Local reference for speed
 
         for pattern in self.patterns:
-            for pos in grid.all_positions:
-                for direction in directions:
-                    line = self._get_line(grid, pos, direction, pattern, required_count, all_used)
-                    if line and not self._is_adjacent_to_used(grid, line, all_used):
-                        valid_groups.append(line)
-                        all_used.update(line)
+            for line in ALL_3_LINES:
+                # Check first tile immediately - most lines will fail here
+                first_pos = line[0]
+                if first_pos in all_used:
+                    continue
+                first_tile = grid_dict.get(first_pos)
+                if not first_tile or first_tile.pattern != pattern:
+                    continue
+
+                # Check remaining tiles
+                valid = True
+                for pos in line[1:]:
+                    if pos in all_used:
+                        valid = False
+                        break
+                    tile = grid_dict.get(pos)
+                    if not tile or tile.pattern != pattern:
+                        valid = False
+                        break
+
+                if valid and not self._is_adjacent_to_used(grid, frozenset(line), all_used):
+                    group = frozenset(line)
+                    valid_groups.append(group)
+                    all_used.update(line)
 
         return valid_groups
-
-    def _get_line(self, grid: HexGrid, start: Tuple[int, int, int], direction: Tuple[int, int, int],
-                  pattern: Pattern, required_count: int,
-                  used_tiles: Set[Tuple[int, int, int]]) -> FrozenSet[Tuple[int, int, int]] | None:
-        """Get a line of tiles if valid, None otherwise."""
-        positions = []
-        q, r, s = start
-        dq, dr, ds = direction
-
-        for _ in range(required_count):
-            pos = (q, r, s)
-            if pos not in grid.grid or pos in used_tiles:
-                return None
-            tile = grid.grid.get(pos)
-            if not tile or tile.pattern != pattern:
-                return None
-            positions.append(pos)
-            q, r, s = q + dq, r + dr, s + ds
-
-        return frozenset(positions)
 
 
 ALL_CATS = [CatMillie, CatLeo, CatRumi]
