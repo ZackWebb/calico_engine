@@ -5,7 +5,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 from source.hex_grid import HexGrid, Color, Pattern
 from source.tile import Tile
-from source.cat import initialize_game_cats, CatMillie, CatLeo, CatRumi
+from source.cat import (
+    initialize_game_cats, CatMillie, CatLeo, CatRumi,
+    BUCKET_1, BUCKET_2, BUCKET_3
+)
 
 @pytest.fixture
 def game_setup():
@@ -218,3 +221,85 @@ def test_rumi_condition_diagonal(game_setup, capsys):
     print(f"\nRumi's condition met: {result}")
 
     assert result, f"Rumi's diagonal condition should be met. Grid:\n{grid}"
+
+
+# --- Bucket Selection Tests ---
+
+class TestBucketConfiguration:
+    """Tests for cat bucket configuration."""
+
+    def test_bucket_1_contains_millie(self):
+        """Bucket 1 should contain Millie."""
+        assert CatMillie in BUCKET_1
+
+    def test_bucket_2_contains_rumi(self):
+        """Bucket 2 should contain Rumi."""
+        assert CatRumi in BUCKET_2
+
+    def test_bucket_3_contains_leo(self):
+        """Bucket 3 should contain Leo."""
+        assert CatLeo in BUCKET_3
+
+    def test_buckets_are_non_empty(self):
+        """All buckets should have at least one cat."""
+        assert len(BUCKET_1) >= 1
+        assert len(BUCKET_2) >= 1
+        assert len(BUCKET_3) >= 1
+
+
+class TestBucketSelection:
+    """Tests for bucket-based cat selection."""
+
+    def test_bucket_selection_returns_three_cats(self):
+        """Bucket selection should return exactly 3 cats."""
+        cats, _ = initialize_game_cats(use_buckets=True)
+        assert len(cats) == 3
+
+    def test_bucket_selection_one_from_each_bucket(self):
+        """Each cat should come from a different bucket."""
+        # Run multiple times to test randomness
+        for _ in range(10):
+            cats, _ = initialize_game_cats(use_buckets=True)
+
+            cat_classes = [type(cat) for cat in cats]
+
+            # One cat should be from bucket 1
+            assert any(cat_class in BUCKET_1 for cat_class in cat_classes)
+            # One cat should be from bucket 2
+            assert any(cat_class in BUCKET_2 for cat_class in cat_classes)
+            # One cat should be from bucket 3
+            assert any(cat_class in BUCKET_3 for cat_class in cat_classes)
+
+    def test_bucket_selection_patterns_non_overlapping(self):
+        """All cats should have non-overlapping pattern assignments."""
+        cats, remaining = initialize_game_cats(use_buckets=True)
+
+        all_cat_patterns = []
+        for cat in cats:
+            all_cat_patterns.extend(cat.patterns)
+
+        # 6 patterns total, all unique
+        assert len(all_cat_patterns) == 6
+        assert len(set(all_cat_patterns)) == 6
+
+    def test_legacy_selection_still_works(self):
+        """Legacy selection (use_buckets=False) should still work."""
+        cats, _ = initialize_game_cats(use_buckets=False)
+        assert len(cats) == 3
+
+        # All patterns should still be non-overlapping
+        all_patterns = []
+        for cat in cats:
+            all_patterns.extend(cat.patterns)
+        assert len(set(all_patterns)) == 6
+
+    def test_default_uses_bucket_selection(self):
+        """Default should use bucket selection."""
+        # With only one cat per bucket currently, bucket selection
+        # will always return Millie, Rumi, Leo
+        cats, _ = initialize_game_cats()  # default
+
+        cat_classes = [type(cat) for cat in cats]
+        assert CatMillie in cat_classes
+        assert CatRumi in cat_classes
+        assert CatLeo in cat_classes

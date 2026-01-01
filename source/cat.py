@@ -251,12 +251,41 @@ class CatRumi(Cat):
         return valid_groups
 
 
+# Cat buckets for random selection
+# Each game selects one cat from each bucket
+# Bucket 1: 4 cats including Millie (cluster-based scoring)
+# Bucket 2: 4 cats including Rumi (3-in-a-line scoring)
+# Bucket 3: 2 cats including Leo (5-in-a-line scoring)
+BUCKET_1 = [CatMillie]  # Will expand to 4 cats
+BUCKET_2 = [CatRumi]    # Will expand to 4 cats
+BUCKET_3 = [CatLeo]     # Will expand to 2 cats
+
+# Legacy list for backwards compatibility
 ALL_CATS = [CatMillie, CatLeo, CatRumi]
 
 
-def initialize_game_cats() -> Tuple[List[Cat], List[Pattern]]:
-    """Initialize 3 cats with non-overlapping pattern assignments."""
-    chosen_cats = random.sample(ALL_CATS, 3)
+def initialize_game_cats(use_buckets: bool = True) -> Tuple[List[Cat], List[Pattern]]:
+    """
+    Initialize 3 cats with non-overlapping pattern assignments.
+
+    Args:
+        use_buckets: If True, select one cat from each bucket (default).
+                     If False, use legacy random selection from ALL_CATS.
+
+    Returns:
+        Tuple of (list of 3 Cat instances, remaining unused patterns)
+    """
+    if use_buckets:
+        # Select one cat from each bucket
+        cat_from_bucket_1 = random.choice(BUCKET_1)
+        cat_from_bucket_2 = random.choice(BUCKET_2)
+        cat_from_bucket_3 = random.choice(BUCKET_3)
+        chosen_cats = [cat_from_bucket_1, cat_from_bucket_2, cat_from_bucket_3]
+    else:
+        # Legacy: random selection from all cats
+        chosen_cats = random.sample(ALL_CATS, 3)
+
+    # Shuffle patterns and assign 2 to each cat (non-overlapping)
     all_patterns = list(Pattern)
     random.shuffle(all_patterns)
 
@@ -264,7 +293,8 @@ def initialize_game_cats() -> Tuple[List[Cat], List[Pattern]]:
     for cat_class in chosen_cats:
         cat_patterns = tuple(all_patterns[:2])
         all_patterns = all_patterns[2:]
-        cats.append(cat_class())
-        cats[-1].patterns = cat_patterns
+        cat = cat_class()
+        cat.patterns = cat_patterns
+        cats.append(cat)
 
     return cats, all_patterns
