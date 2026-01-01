@@ -267,7 +267,11 @@ def run_benchmark(
     print(f"  Heuristic: {use_heuristic}")
     print(f"  Combined actions: {use_combined_actions}")
     print(f"  Recording: {record}")
-    print(f"  Seeds: {seeds_used[0]}-{seeds_used[-1]}")
+    # Show seeds info - check if they're sequential (fixed) or random
+    if seeds is not None:
+        print(f"  Seeds: {seeds_used[0]}-{seeds_used[-1]} (fixed)")
+    else:
+        print(f"  Seeds: random")
     if cat_ratio != 1.0 or button_ratio != 1.0:
         print(f"  Ratios: cat={cat_ratio}, button={button_ratio} (goal=1.0)")
     print()
@@ -432,7 +436,7 @@ def main():
     parser.add_argument("--no-record", action="store_true",
                        help="Disable game recording (default: recording enabled)")
     parser.add_argument("--seeds", type=str, default=None,
-                       help="Seeds for reproducibility: '0-9', '0,5,10', or 'fixed' (default: 0 to n-1)")
+                       help="Seeds for reproducibility: '0-9', '0,5,10', or 'fixed' (default: random)")
 
     args = parser.parse_args()
 
