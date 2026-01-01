@@ -49,15 +49,17 @@ def _find_clusters_from(grid: HexGrid, start: Tuple[int, int, int],
                         color: Color, used_tiles: Set[Tuple[int, int, int]]) -> List[FrozenSet[Tuple[int, int, int]]]:
     """Find all valid 3-tile clusters starting from a position."""
     results = []
-    _dfs_cluster(grid, start, color, used_tiles, set(), results)
+    _dfs_cluster(grid, start, color, used_tiles, [], results)
     return results
 
 
 def _dfs_cluster(grid: HexGrid, pos: Tuple[int, int, int], color: Color,
-                 used_tiles: Set[Tuple[int, int, int]], current: Set[Tuple[int, int, int]],
+                 used_tiles: Set[Tuple[int, int, int]], current: List[Tuple[int, int, int]],
                  results: List[FrozenSet[Tuple[int, int, int]]]):
-    """DFS to find 3-tile clusters."""
-    if pos in used_tiles or pos in current:
+    """DFS to find 3-tile clusters. Uses mutable list to avoid set copies."""
+    if pos in used_tiles:
+        return
+    if pos in current:  # Check list membership (small list, OK)
         return
     if pos not in grid.grid:
         return
@@ -66,26 +68,34 @@ def _dfs_cluster(grid: HexGrid, pos: Tuple[int, int, int], color: Color,
     if not tile or tile.color != color:
         return
 
-    current = current | {pos}
+    # Add to current path (mutable - no copy needed)
+    current.append(pos)
 
     if len(current) == 3:
         # Verify all 3 are connected (each adjacent to at least one other)
         if _is_connected_cluster(grid, current):
             results.append(frozenset(current))
+        current.pop()  # Backtrack
         return
 
     # Expand to neighbors
     for neighbor in grid.get_neighbors(*pos):
         _dfs_cluster(grid, neighbor, color, used_tiles, current, results)
 
+    current.pop()  # Backtrack
 
-def _is_connected_cluster(grid: HexGrid, positions: Set[Tuple[int, int, int]]) -> bool:
+
+def _is_connected_cluster(grid: HexGrid, positions) -> bool:
     """Check that all positions form a connected cluster."""
-    positions = list(positions)
+    positions = list(positions)  # Works with both list and set input
     for i, p1 in enumerate(positions):
-        neighbors = set(grid.get_neighbors(*p1))
-        other_positions = set(positions[:i] + positions[i+1:])
-        if not neighbors & other_positions:
+        neighbors = grid.get_neighbors(*p1)  # Returns tuple, not list
+        has_connection = False
+        for j, p2 in enumerate(positions):
+            if i != j and p2 in neighbors:
+                has_connection = True
+                break
+        if not has_connection:
             return False
     return True
 

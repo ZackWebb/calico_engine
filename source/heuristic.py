@@ -6,7 +6,7 @@ Estimates the final score from a partial game state by:
 2. Adding potential points for near-complete patterns
 """
 from dataclasses import dataclass
-from typing import List, Set, Tuple, Optional
+from typing import List, Set, Tuple, Optional, Dict
 from collections import Counter
 from functools import lru_cache
 
@@ -604,28 +604,28 @@ def evaluate_buttons(grid: HexGrid, config: HeuristicConfig = None) -> float:
     if config is None:
         config = DEFAULT_HEURISTIC_CONFIG
 
-    # Current button score
-    current_score = score_buttons(grid)
+    # Get button counts ONCE (was being computed twice before)
+    button_counts = count_buttons_by_color(grid)
+
+    # Current button score (computed from cached counts)
+    total_buttons = sum(button_counts.values())
+    has_rainbow = all(count >= 1 for count in button_counts.values())
+    current_score = total_buttons * 3 + (5 if has_rainbow else 0)
+
+    # Count all color pairs in single pass (was 6-12 separate calls before)
+    color_pairs = count_all_color_pairs(grid)
 
     # Potential from color pairs (adjacent same-color not yet in button)
-    pair_potential = 0.0
-    colors_with_pairs = 0
-    for color in Color:
-        pairs = count_color_pairs(grid, color)
-        pair_potential += pairs * 1.0  # Each pair worth ~1 potential point
-        if pairs > 0:
-            colors_with_pairs += 1
+    pair_potential = sum(color_pairs.values())  # Each pair worth ~1 potential point
 
     # Rainbow potential based on completed buttons
-    button_counts = count_buttons_by_color(grid)
     colors_with_buttons = sum(1 for count in button_counts.values() if count >= 1)
 
     # Count colors with button potential (completed OR have pairs)
     colors_with_potential = colors_with_buttons
     for color in Color:
-        if button_counts.get(color, 0) == 0:  # No completed button yet
-            if count_color_pairs(grid, color) > 0:
-                colors_with_potential += 1
+        if button_counts.get(color, 0) == 0 and color_pairs.get(color, 0) > 0:
+            colors_with_potential += 1
 
     # Scale rainbow potential based on completed buttons
     rainbow_potential = 0.0
@@ -677,3 +677,37 @@ def count_color_pairs(grid: HexGrid, color: Color) -> int:
 
     # Divide by 2 since we counted each pair twice
     return pairs // 2
+
+
+def count_all_color_pairs(grid: HexGrid) -> Dict[Color, int]:
+    """
+    Count pairs of adjacent tiles for ALL colors in a single grid traversal.
+    Much faster than calling count_color_pairs 6 times.
+
+    Returns dict mapping Color -> number of pairs for that color.
+    """
+    # Track pairs per color
+    pairs_by_color = {color: 0 for color in Color}
+    neighbors_count = {color: {} for color in Color}  # pos -> neighbor count
+
+    for pos in grid.all_positions:
+        tile = grid.grid.get(pos)
+        if tile is None:
+            continue
+
+        color = tile.color
+        same_color_neighbors = 0
+
+        for neighbor_pos in grid.get_neighbors(*pos):
+            neighbor = grid.grid.get(neighbor_pos)
+            if neighbor is not None and neighbor.color == color:
+                same_color_neighbors += 1
+
+        neighbors_count[color][pos] = same_color_neighbors
+
+    # Count pairs: positions with exactly 1 same-color neighbor
+    for color in Color:
+        pair_count = sum(1 for count in neighbors_count[color].values() if count == 1)
+        pairs_by_color[color] = pair_count // 2  # Each pair counted twice
+
+    return pairs_by_color
