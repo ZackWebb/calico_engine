@@ -29,16 +29,40 @@ class SimulationMode(GameMode):
 
     def copy(self) -> 'SimulationMode':
         """
-        Create a deep copy of this game for simulation/lookahead.
+        Create a fast copy of this game for simulation/lookahead.
         Essential for MCTS agent to explore possible futures.
+
+        Uses custom shallow copy that shares immutable objects (Tiles, Cats,
+        Goals) while copying mutable state (tile lists, grid positions).
 
         Implements chance node sampling by shuffling remaining tiles in the
         copied bag. This ensures each simulation explores a different possible
         future, rather than "cheating" by knowing the exact tile order.
         """
-        copied = copy.deepcopy(self)
-        copied.market.tile_bag.shuffle_remaining()
-        return copied
+        new_game = object.__new__(SimulationMode)
+
+        # Copy mutable state using custom __copy__ methods
+        new_game.tile_bag = copy.copy(self.tile_bag)
+        new_game.player = copy.copy(self.player)
+        new_game.market = copy.copy(self.market)
+        new_game.market.tile_bag = new_game.tile_bag  # Link market to new bag
+
+        # Share immutable objects (Cats/Goals have immutable attributes)
+        new_game.cats = self.cats
+        new_game.goals = self.goals
+        new_game.board_config = self.board_config
+
+        # Copy scalars
+        new_game.turn_number = self.turn_number
+        new_game.turn_phase = self.turn_phase
+
+        # Copy action history (list of immutable Action dataclasses)
+        new_game._action_history = self._action_history.copy()
+
+        # Chance node sampling - shuffle for honest simulation
+        new_game.tile_bag.shuffle_remaining()
+
+        return new_game
 
     def get_action_history(self) -> List[Action]:
         """Return history of all actions taken."""

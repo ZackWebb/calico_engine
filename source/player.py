@@ -1,6 +1,9 @@
+import copy as copy_module
 from hex_grid import HexGrid
 
 class Player:
+    __slots__ = ('name', 'grid', 'tiles')
+
     def __init__(self, name, tile_bag):
         self.name = name
         self.grid = HexGrid()
@@ -21,3 +24,11 @@ class Player:
 
     def __str__(self):
         return f"Player {self.name}: {', '.join(str(tile) for tile in self.tiles)}"
+
+    def __copy__(self):
+        """Shallow copy - copies grid and hand, shares Tile references."""
+        new_player = object.__new__(Player)
+        new_player.name = self.name
+        new_player.grid = copy_module.copy(self.grid)
+        new_player.tiles = self.tiles.copy()
+        return new_player

@@ -1,15 +1,39 @@
 from tile import Tile, Color, Pattern
 
+# Hex grid neighbor directions (constant)
+_HEX_DIRECTIONS = (
+    (1, -1, 0), (1, 0, -1), (0, 1, -1),
+    (-1, 1, 0), (-1, 0, 1), (0, -1, 1)
+)
+
 class HexGrid:
+    __slots__ = ('grid', 'goal_positions', '_neighbor_cache', '_all_positions_cache')
+
     def __init__(self):
         self.grid = {}
         self.goal_positions = set()  # Positions where goals are placed (cannot place tiles)
+        self._neighbor_cache = {}
+        self._all_positions_cache = None
         self.initialize_grid()
+        self._build_neighbor_cache()
+
+    def _build_neighbor_cache(self):
+        """Pre-compute neighbors for all positions (called after grid is built)."""
+        for pos in self.grid:
+            q, r, s = pos
+            self._neighbor_cache[pos] = tuple(
+                (q + dq, r + dr, s + ds)
+                for dq, dr, ds in _HEX_DIRECTIONS
+                if (q + dq, r + dr, s + ds) in self.grid
+            )
+        self._all_positions_cache = None  # Invalidate cache
 
     @property
     def all_positions(self):
-        """Return all valid positions in the grid."""
-        return list(self.grid.keys())
+        """Return all valid positions in the grid (cached)."""
+        if self._all_positions_cache is None:
+            self._all_positions_cache = tuple(self.grid.keys())
+        return self._all_positions_cache
 
     def add_hex(self, qr):
         q, r = qr
@@ -33,16 +57,8 @@ class HexGrid:
             self.add_hex(coord)
 
     def get_neighbors(self, q, r, s):
-        directions = [
-            (1, -1, 0), (1, 0, -1), (0, 1, -1),
-            (-1, 1, 0), (-1, 0, 1), (0, -1, 1)
-        ]
-        neighbors = []
-        for dq, dr, ds in directions:
-            neighbor = (q + dq, r + dr, s + ds)
-            if neighbor in self.grid:
-                neighbors.append(neighbor)
-        return neighbors
+        """Return cached neighbors for position (O(1) lookup)."""
+        return self._neighbor_cache.get((q, r, s), ())
 
     def is_valid_position(self, q, r, s):
         return (q, r, s) in self.grid and -4 <= q <= 4 and -4 <= r <= 4 and -4 <= s <= 4
@@ -71,6 +87,8 @@ class HexGrid:
         for pos in self.goal_positions:
             if pos in self.grid:
                 del self.grid[pos]
+        # Rebuild neighbor cache after grid modification
+        self._build_neighbor_cache()
 
     def is_goal_position(self, q, r, s):
         """Check if a position is a goal tile position."""
@@ -103,3 +121,12 @@ class HexGrid:
         if not self.is_valid_position(q, r, s):
             return False
         return self.grid.get((q, r, s)) is None
+
+    def __copy__(self):
+        """Shallow copy - shares Tile refs and neighbor cache (structure is immutable)."""
+        new_grid = object.__new__(HexGrid)
+        new_grid.grid = self.grid.copy()  # Shallow dict copy
+        new_grid.goal_positions = self.goal_positions  # Share immutable set
+        new_grid._neighbor_cache = self._neighbor_cache  # Share cache
+        new_grid._all_positions_cache = self._all_positions_cache  # Share cache
+        return new_grid

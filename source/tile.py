@@ -17,6 +17,8 @@ class Pattern(Enum):
     SWIRLS = 6
 
 class Tile:
+    __slots__ = ('color', 'pattern')
+
     def __init__(self, color: Color, pattern: Pattern):
         self.color = color
         self.pattern = pattern
