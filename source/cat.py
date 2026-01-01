@@ -299,8 +299,8 @@ class CatTecolote(Cat):
 # Bucket 1: 4 cats including Millie (cluster-based scoring)
 # Bucket 2: 4 cats including Rumi (3-in-a-line scoring)
 # Bucket 3: 2 cats including Leo (5-in-a-line scoring)
-BUCKET_1 = [CatMillie]  # Will expand to 4 cats
-BUCKET_2 = [CatRumi, CatTecolote]  # Will expand to 4 cats
+BUCKET_1 = [CatMillie, CatRumi]  # Will expand to 4 cats
+BUCKET_2 = [CatTecolote]  # Will expand to 4 cats
 BUCKET_3 = [CatLeo]     # Will expand to 2 cats
 
 # Legacy list for backwards compatibility

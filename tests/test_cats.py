@@ -322,9 +322,9 @@ class TestBucketConfiguration:
         """Bucket 1 should contain Millie."""
         assert CatMillie in BUCKET_1
 
-    def test_bucket_2_contains_rumi(self):
-        """Bucket 2 should contain Rumi."""
-        assert CatRumi in BUCKET_2
+    def test_bucket_1_contains_rumi(self):
+        """Bucket 1 should contain Rumi."""
+        assert CatRumi in BUCKET_1
 
     def test_bucket_2_contains_tecolote(self):
         """Bucket 2 should contain Tecolote."""
