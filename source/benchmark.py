@@ -216,7 +216,7 @@ def run_benchmark(
     workers: int = 4,
     cat_ratio: float = 1.0,
     button_ratio: float = 1.0,
-) -> Tuple[Dict[str, Any], List[str], Optional[List[int]], List[GameMetadata]]:
+) -> Tuple[Dict[str, Any], List[str], Optional[List[int]], List[GameMetadata], List[int]]:
     """
     Run benchmark and log to MLflow.
 
@@ -227,7 +227,7 @@ def run_benchmark(
         cat_ratio: Ratio of cat weight to goal weight (default 1.0)
         button_ratio: Ratio of button weight to goal weight (default 1.0)
 
-    Returns (results dict, list of game record filenames, seeds used, game metadata list).
+    Returns (results dict, list of game record filenames, seeds used, game metadata list, per-game scores).
     """
     # Agent config (passed to workers, not the agent itself)
     agent_config = {
@@ -353,7 +353,7 @@ def run_benchmark(
         "button_score_mean": mean(button_scores),
     }
 
-    return results, game_record_files, seeds_used, game_metadata_list
+    return results, game_record_files, seeds_used, game_metadata_list, mcts_scores
 
 
 def log_to_mlflow(
@@ -363,7 +363,8 @@ def log_to_mlflow(
     run_name: str = None,
     game_record_files: List[str] = None,
     seeds_used: Optional[List[int]] = None,
-    game_metadata_list: Optional[List[GameMetadata]] = None
+    game_metadata_list: Optional[List[GameMetadata]] = None,
+    per_game_scores: Optional[List[int]] = None
 ):
     """Log benchmark results to MLflow including game metadata."""
     with mlflow.start_run(run_name=run_name):
@@ -401,23 +402,92 @@ def log_to_mlflow(
             all_cats = set()
             all_goals = set()
             all_boards = set()
+            all_goal_arrangements = set()
+            all_setup_keys = set()
 
             for metadata in game_metadata_list:
                 all_cats.update(metadata.cat_names)
                 all_goals.update(metadata.goal_names)
                 all_boards.add(metadata.board_name)
+                all_goal_arrangements.add(metadata.get_goal_arrangement_key())
+                all_setup_keys.add(metadata.get_setup_key())
 
             # Log as tags for easy filtering
             mlflow.set_tag("cats_used", ",".join(sorted(all_cats)))
             mlflow.set_tag("goals_used", ",".join(sorted(all_goals)))
             mlflow.set_tag("boards_used", ",".join(sorted(all_boards)))
+            mlflow.set_tag("n_unique_arrangements", str(len(all_goal_arrangements)))
+            mlflow.set_tag("n_unique_setups", str(len(all_setup_keys)))
 
             # Log first game's full metadata as parameters (representative sample)
             first_metadata = game_metadata_list[0]
             metadata_params = first_metadata.to_mlflow_params()
             mlflow.log_params(metadata_params)
 
+            # Create per-game metadata CSV for detailed analysis
+            _log_per_game_metadata(game_metadata_list, per_game_scores, seeds_used)
+
         print(f"\nMLflow run logged: {mlflow.active_run().info.run_id}")
+
+
+def _log_per_game_metadata(
+    game_metadata_list: List[GameMetadata],
+    per_game_scores: Optional[List[int]] = None,
+    seeds_used: Optional[List[int]] = None
+):
+    """
+    Log per-game metadata as a CSV artifact for detailed analysis.
+
+    Creates a CSV with columns:
+    - seed, score, board, cats, goals, goal_arrangement, setup_key
+    """
+    import csv
+    import tempfile
+    import os
+
+    # Create temp file for CSV
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+        writer = csv.writer(f)
+
+        # Header
+        writer.writerow([
+            'game_idx', 'seed', 'score', 'board', 'cats', 'goals',
+            'goal_1_name', 'goal_1_pos', 'goal_2_name', 'goal_2_pos', 'goal_3_name', 'goal_3_pos',
+            'goal_arrangement', 'goals_only', 'setup_key'
+        ])
+
+        # Data rows
+        for i, metadata in enumerate(game_metadata_list):
+            seed = seeds_used[i] if seeds_used and i < len(seeds_used) else i
+            score = per_game_scores[i] if per_game_scores and i < len(per_game_scores) else 0
+
+            # Goal details (pad to 3 if needed)
+            goal_names = metadata.goal_names + [''] * (3 - len(metadata.goal_names))
+            goal_positions = metadata.goal_positions + [[-1, -1, -1]] * (3 - len(metadata.goal_positions))
+
+            row = [
+                i,
+                seed,
+                score,
+                metadata.board_name,
+                ",".join(sorted(metadata.cat_names)),
+                ",".join(sorted(metadata.goal_names)),
+                goal_names[0], f"({goal_positions[0][0]},{goal_positions[0][1]},{goal_positions[0][2]})",
+                goal_names[1], f"({goal_positions[1][0]},{goal_positions[1][1]},{goal_positions[1][2]})",
+                goal_names[2], f"({goal_positions[2][0]},{goal_positions[2][1]},{goal_positions[2][2]})",
+                metadata.get_goal_arrangement_key(),
+                metadata.get_goals_only_key(),
+                metadata.get_setup_key()
+            ]
+            writer.writerow(row)
+
+        temp_path = f.name
+
+    # Log as artifact
+    mlflow.log_artifact(temp_path, "game_metadata")
+
+    # Clean up temp file
+    os.unlink(temp_path)
 
 
 def main():
@@ -507,7 +577,7 @@ def main():
                 "button_ratio": args.button_ratio,
             }
 
-            results, game_record_files, seeds_used, game_metadata = run_benchmark(
+            results, game_record_files, seeds_used, game_metadata, per_game_scores = run_benchmark(
                 n_games=args.n_games,
                 iterations=iters,
                 exploration=args.exploration,
@@ -531,7 +601,7 @@ def main():
                 tags = {"sweep": "iterations", "tag": args.tag} if args.tag else {"sweep": "iterations"}
                 log_to_mlflow(results, params, tags, run_name=f"sweep_iter_{iters}",
                              game_record_files=game_record_files, seeds_used=seeds_used,
-                             game_metadata_list=game_metadata)
+                             game_metadata_list=game_metadata, per_game_scores=per_game_scores)
     else:
         # Single run mode
         params = {
@@ -546,7 +616,7 @@ def main():
             "button_ratio": args.button_ratio,
         }
 
-        results, game_record_files, seeds_used, game_metadata = run_benchmark(
+        results, game_record_files, seeds_used, game_metadata, per_game_scores = run_benchmark(
             n_games=args.n_games,
             iterations=args.iterations,
             exploration=args.exploration,
@@ -588,7 +658,7 @@ def main():
             tags = {"tag": args.tag} if args.tag else None
             log_to_mlflow(results, params, tags, run_name=args.run_name,
                          game_record_files=game_record_files, seeds_used=seeds_used,
-                         game_metadata_list=game_metadata)
+                         game_metadata_list=game_metadata, per_game_scores=per_game_scores)
             print("\nView results: mlflow ui")
 
 

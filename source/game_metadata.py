@@ -107,6 +107,39 @@ class GameMetadata:
             "board": self.board_name,
         }
 
+    def get_goal_arrangement_key(self) -> str:
+        """
+        Get a unique key representing the goal type to position arrangement.
+
+        Returns string like "AAA-BBB@(-2,1,1)|AA-BB-CC@(1,-1,0)|All Unique@(0,1,-1)"
+        This allows filtering/grouping by specific goal arrangements.
+        """
+        parts = []
+        for name, pos in zip(self.goal_names, self.goal_positions):
+            pos_str = f"({pos[0]},{pos[1]},{pos[2]})"
+            parts.append(f"{name}@{pos_str}")
+        return "|".join(sorted(parts))  # Sort for consistent ordering
+
+    def get_setup_key(self) -> str:
+        """
+        Get a unique key representing the full game setup (board + cats + goals + arrangement).
+
+        This key can be used to identify identical game setups for analysis.
+        Format: "BOARD_1|Millie,Rumi,Leo|AAA-BBB@pos1|AA-BB-CC@pos2|..."
+        """
+        cats_sorted = ",".join(sorted(self.cat_names))
+        goals_sorted = self.get_goal_arrangement_key()
+        return f"{self.board_name}|{cats_sorted}|{goals_sorted}"
+
+    def get_goals_only_key(self) -> str:
+        """
+        Get a key for just the goal types selected (ignoring positions).
+
+        Returns sorted goal names like "AA-BB-CC,AAA-BBB,All Unique"
+        Useful for filtering "which 3 goals were selected".
+        """
+        return ",".join(sorted(self.goal_names))
+
     def to_json(self) -> str:
         """Serialize to JSON string for storage."""
         return json.dumps(asdict(self))

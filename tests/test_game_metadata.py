@@ -127,3 +127,99 @@ class TestExtractGameMetadata:
         assert isinstance(metadata, GameMetadata)
         assert len(metadata.cat_names) == 3
         assert len(metadata.goal_names) == 3
+
+
+class TestGoalArrangementKeys:
+    """Tests for goal arrangement tracking keys."""
+
+    def test_goal_arrangement_key_format(self):
+        """Should produce key with goal@position format."""
+        game = SimulationMode(BOARD_1)
+        metadata = GameMetadata.from_game(game)
+        key = metadata.get_goal_arrangement_key()
+
+        # Key should have 3 parts separated by |
+        parts = key.split("|")
+        assert len(parts) == 3
+
+        # Each part should have goal@(position) format
+        for part in parts:
+            assert "@" in part
+            assert "(" in part
+            assert ")" in part
+
+    def test_goal_arrangement_key_sorted(self):
+        """Key should be sorted for consistent ordering."""
+        game = SimulationMode(BOARD_1)
+        metadata = GameMetadata.from_game(game)
+        key = metadata.get_goal_arrangement_key()
+
+        parts = key.split("|")
+        assert parts == sorted(parts)
+
+    def test_goals_only_key_format(self):
+        """Should produce sorted comma-separated goal names."""
+        game = SimulationMode(BOARD_1)
+        metadata = GameMetadata.from_game(game)
+        key = metadata.get_goals_only_key()
+
+        # Should have comma-separated goal names
+        goal_names = key.split(",")
+        assert len(goal_names) == 3
+        assert goal_names == sorted(goal_names)
+
+    def test_setup_key_includes_all_components(self):
+        """Setup key should include board, cats, and goal arrangement."""
+        game = SimulationMode(BOARD_1)
+        metadata = GameMetadata.from_game(game)
+        key = metadata.get_setup_key()
+
+        # Should contain board name
+        assert "BOARD_1" in key
+
+        # Should have pipes separating components
+        parts = key.split("|")
+        assert len(parts) >= 3  # board | cats | goals...
+
+    def test_same_setup_produces_same_key(self):
+        """Identical setups should produce identical keys."""
+        # Create metadata with known values
+        metadata1 = GameMetadata(
+            cat_names=["Millie", "Rumi", "Leo"],
+            cat_points=[3, 5, 11],
+            cat_patterns=[["DOTS", "LEAVES"], ["FLOWERS", "STRIPES"], ["CLUBS", "SWIRLS"]],
+            goal_names=["AAA-BBB", "AA-BB-CC", "All Unique"],
+            goal_positions=[[-2, 1, 1], [1, -1, 0], [0, 1, -1]],
+            board_name="BOARD_1"
+        )
+        metadata2 = GameMetadata(
+            cat_names=["Millie", "Rumi", "Leo"],
+            cat_points=[3, 5, 11],
+            cat_patterns=[["DOTS", "LEAVES"], ["FLOWERS", "STRIPES"], ["CLUBS", "SWIRLS"]],
+            goal_names=["AAA-BBB", "AA-BB-CC", "All Unique"],
+            goal_positions=[[-2, 1, 1], [1, -1, 0], [0, 1, -1]],
+            board_name="BOARD_1"
+        )
+
+        assert metadata1.get_setup_key() == metadata2.get_setup_key()
+        assert metadata1.get_goal_arrangement_key() == metadata2.get_goal_arrangement_key()
+
+    def test_different_arrangement_produces_different_key(self):
+        """Different goal positions should produce different keys."""
+        metadata1 = GameMetadata(
+            goal_names=["AAA-BBB", "AA-BB-CC", "All Unique"],
+            goal_positions=[[-2, 1, 1], [1, -1, 0], [0, 1, -1]],
+            board_name="BOARD_1"
+        )
+        # Same goals but different positions
+        metadata2 = GameMetadata(
+            goal_names=["AAA-BBB", "AA-BB-CC", "All Unique"],
+            goal_positions=[[0, 1, -1], [-2, 1, 1], [1, -1, 0]],  # Swapped
+            board_name="BOARD_1"
+        )
+
+        # Goal arrangement keys should differ
+        assert metadata1.get_goal_arrangement_key() != metadata2.get_goal_arrangement_key()
+
+        # But goals_only keys should be the same (same 3 goals selected)
+        assert metadata1.get_goals_only_key() == metadata2.get_goals_only_key()
