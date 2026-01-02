@@ -1,17 +1,27 @@
 """
 Calico CLI - Unified command-line interface for the Calico board game AI.
 
-Usage:
-    python cli.py play              # Play interactive game with pygame
-    python cli.py mcts              # Run single MCTS game
-    python cli.py mcts --baseline 10  # Compare MCTS vs random
-    python cli.py replay --latest   # Replay most recent recorded game
-    python cli.py replay --list     # List available recordings
+Usage (from project root):
+    uv run cli.py play              # Play interactive game with pygame
+    uv run cli.py mcts              # Run single MCTS game
+    uv run cli.py mcts --baseline 10  # Compare MCTS vs random
+    uv run cli.py replay --latest   # Replay most recent recorded game
+    uv run cli.py replay --list     # List available recordings
 """
 import typer
 from typing import Optional
 from pathlib import Path
 from enum import Enum
+
+
+def get_project_root() -> Path:
+    """Get the project root directory (parent of source/)."""
+    return Path(__file__).parent.parent
+
+
+def get_source_dir() -> Path:
+    """Get the source directory."""
+    return Path(__file__).parent
 
 app = typer.Typer(
     name="calico",
@@ -229,8 +239,7 @@ def replay(
     import os
 
     def get_records_dir():
-        current_dir = Path(__file__).parent
-        return current_dir.parent / "game_records"
+        return get_project_root() / "game_records"
 
     if list_recordings:
         records_dir = get_records_dir()
@@ -367,7 +376,7 @@ def test(
         cmd.extend(["-k", filter])
 
     typer.echo(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=Path(__file__).parent.parent)
+    result = subprocess.run(cmd, cwd=get_project_root())
     raise typer.Exit(result.returncode)
 
 
@@ -441,7 +450,7 @@ def benchmark(
     if verbose:
         cmd.append("-v")
 
-    result = subprocess.run(cmd, cwd=Path(__file__).parent)
+    result = subprocess.run(cmd, cwd=get_source_dir())
     raise typer.Exit(result.returncode)
 
 
@@ -455,7 +464,7 @@ def mlflow_ui():
     import subprocess
     import sys
 
-    project_root = Path(__file__).parent.parent
+    project_root = get_project_root()
     db_path = project_root / "mlflow.db"
 
     typer.echo("Starting MLflow UI at http://localhost:5000")

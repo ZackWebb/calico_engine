@@ -19,7 +19,7 @@ dev = [
 ]
 
 [project.scripts]
-calico = "source.cli:app"
+calico = "source.cli_app:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

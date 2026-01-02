@@ -8,8 +8,9 @@ A Monte Carlo Tree Search (MCTS) AI for the Calico board game - a hexagonal tile
 ## Project Structure
 
 ```
+cli.py                     # Root-level CLI entry point (run with: uv run cli.py)
 source/
-├── cli.py                 # CLI entry point (play, mcts, replay, benchmark)
+├── cli_app.py             # CLI implementation (play, mcts, replay, benchmark)
 ├── game_mode.py           # Abstract game mode base class
 ├── simulation_mode.py     # Non-visual mode for MCTS (contains copy logic)
 ├── play_mode.py           # Interactive human-playable mode with pygame
@@ -124,15 +125,17 @@ class CatNewCat(Cat):
 
 ## CLI Commands
 
+Run all commands from the project root directory using `uv run cli.py`:
+
 ```bash
-python cli.py play              # Interactive game with pygame
-python cli.py mcts              # Run single MCTS game
-python cli.py mcts --baseline 10  # Compare MCTS vs random
-python cli.py mcts --record     # Record game for replay
-python cli.py replay --latest   # Replay most recent recorded game
-python cli.py replay --list     # List available recordings
-python cli.py benchmark         # Run benchmark with MLflow tracking
-python cli.py mlflow-ui         # Start MLflow UI at localhost:5000
+uv run cli.py play              # Interactive game with pygame
+uv run cli.py mcts              # Run single MCTS game
+uv run cli.py mcts --baseline 10  # Compare MCTS vs random
+uv run cli.py mcts --record     # Record game for replay
+uv run cli.py replay --latest   # Replay most recent recorded game
+uv run cli.py replay --list     # List available recordings
+uv run cli.py benchmark         # Run benchmark with MLflow tracking
+uv run cli.py mlflow-ui         # Start MLflow UI at localhost:5000
 ```
 
 ## Game Recording
@@ -169,8 +172,8 @@ Benchmarks log to SQLite database (`mlflow.db`) with:
 - **Game metadata (cats, goals, boards)** - tracked via `GameMetadata` class
 
 ```bash
-python cli.py benchmark -n 16 -i 5000 --tag "experiment_name"
-python cli.py mlflow-ui  # View results at http://localhost:5000
+uv run cli.py benchmark -n 16 -i 5000 --tag "experiment_name"
+uv run cli.py mlflow-ui  # View results at http://localhost:5000
 ```
 
 ### MLflow Game Metadata
@@ -191,9 +194,9 @@ This is designed to be extensible - when you add new boards, goals, or cat types
 
 Run tests with:
 ```bash
-python cli.py test
+uv run cli.py test
 # or
-pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 Key test files:
