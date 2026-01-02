@@ -209,4 +209,3 @@ Key test files:
 ## Known TODOs
 
 - [ ] Add remaining cats to complete buckets (6 more cats needed)
-- [ ] Add remaining goal tile scoring visuals/display

@@ -82,23 +82,26 @@ class PlayModeVisualizer:
         return images
 
     def _load_base_goal_images(self):
-        """Load goal tile images from disk at base size."""
+        """Load goal tile images from disk at base size, keyed by goal name."""
         images = {}
         current_dir = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.dirname(current_dir)
         image_dir = os.path.join(parent_dir, 'images', 'goal_tiles')
 
-        # Map goal positions to image filenames
+        # Map goal names to image filenames
         goal_files = {
-            (-2, 1, 1): 'aaa-bbb.png',
-            (1, -1, 0): 'aa-bb-cc.png',
-            (0, 1, -1): 'all_unique.png',
+            'AAA-BBB': 'aaa-bbb.png',
+            'AA-BB-CC': 'aa-bb-cc.png',
+            'All Unique': 'all_unique.png',
+            'AAAA-BB': 'aaaa-bb.png',
+            'AA-BB-C-D': 'aa-bb-c-d.png',
+            'AAA-BB-C': 'aaa-bb-c.png',
         }
 
-        for pos, filename in goal_files.items():
+        for name, filename in goal_files.items():
             filepath = os.path.join(image_dir, filename)
             if os.path.exists(filepath):
-                images[pos] = pygame.image.load(filepath)
+                images[name] = pygame.image.load(filepath)
         return images
 
     def _load_base_cat_images(self):
@@ -108,12 +111,13 @@ class PlayModeVisualizer:
         parent_dir = os.path.dirname(current_dir)
         image_dir = os.path.join(parent_dir, 'images', 'cats')
 
-        cat_files = ['leo.png', 'millie.png', 'rumi.png']
-        for filename in cat_files:
-            cat_name = filename.replace('.png', '').capitalize()
-            filepath = os.path.join(image_dir, filename)
-            if os.path.exists(filepath):
-                images[cat_name] = pygame.image.load(filepath)
+        # Load all .png files from the cats directory
+        if os.path.exists(image_dir):
+            for filename in os.listdir(image_dir):
+                if filename.endswith('.png'):
+                    cat_name = filename.replace('.png', '').capitalize()
+                    filepath = os.path.join(image_dir, filename)
+                    images[cat_name] = pygame.image.load(filepath)
         return images
 
     def _load_base_grey_tile_images(self):
@@ -171,10 +175,10 @@ class PlayModeVisualizer:
                 base_image, (self.tile_size, self.tile_size)
             )
 
-        # Scaled goal images
+        # Scaled goal images (keyed by goal name)
         self.goal_images = {}
-        for key, base_image in self._base_goal_images.items():
-            self.goal_images[key] = pygame.transform.scale(
+        for name, base_image in self._base_goal_images.items():
+            self.goal_images[name] = pygame.transform.scale(
                 base_image, (self.tile_size, self.tile_size)
             )
 
@@ -389,16 +393,14 @@ class PlayModeVisualizer:
 
     def _draw_goal_tiles(self):
         """Draw goal tiles using images."""
-        # Fallback colors and labels if images not available
-        goal_colors = {
-            (-2, 1, 1): (255, 200, 100),   # AAA-BBB - orange
-            (1, -1, 0): (100, 200, 255),   # AA-BB-CC - light blue
-            (0, 1, -1): (200, 100, 255),   # All Unique - purple
-        }
+        # Fallback labels for each goal type
         goal_labels = {
-            (-2, 1, 1): "3-3",
-            (1, -1, 0): "2-2-2",
-            (0, 1, -1): "6 Uniq",
+            'AAA-BBB': '3-3',
+            'AA-BB-CC': '2-2-2',
+            'All Unique': '6 Uniq',
+            'AAAA-BB': '4-2',
+            'AA-BB-C-D': '2-2-1-1',
+            'AAA-BB-C': '3-2-1',
         }
 
         for goal in self.game.goals:
@@ -407,19 +409,19 @@ class PlayModeVisualizer:
             pixel = hx.cube_to_pixel(hex_coord_array, self.hex_radius)[0]
             pos = pixel + self.center
 
-            # Try to draw goal image, fall back to placeholder if not available
-            if pos_tuple in self.goal_images:
+            # Look up image by goal name
+            goal_name = goal.name
+            if goal_name in self.goal_images:
                 self.screen.blit(
-                    self.goal_images[pos_tuple],
+                    self.goal_images[goal_name],
                     pos - np.array([self.hex_radius, self.hex_radius])
                 )
             else:
                 # Fallback: Draw colored circle with label
-                color = goal_colors.get(pos_tuple, (200, 200, 100))
-                pygame.draw.circle(self.screen, color, pos.astype(int), self.hex_radius - 2)
+                pygame.draw.circle(self.screen, (200, 200, 100), pos.astype(int), self.hex_radius - 2)
                 pygame.draw.circle(self.screen, (100, 100, 100), pos.astype(int), self.hex_radius, 2)
 
-                label = goal_labels.get(pos_tuple, "?")
+                label = goal_labels.get(goal_name, '?')
                 text = self.font.render(label, True, (0, 0, 0))
                 text_rect = text.get_rect(center=pos.astype(int))
                 self.screen.blit(text, text_rect)
