@@ -35,6 +35,7 @@ from mcts_agent import MCTSAgent
 from game_record import GameRecorder, GameRecord
 from run_mcts import save_game_record
 from heuristic import HeuristicConfig
+from game_metadata import GameMetadata
 
 
 def get_git_info() -> Dict[str, str]:
@@ -91,13 +92,16 @@ def run_single_game(
     verbose: bool = False,
     record: bool = False,
     seed: Optional[int] = None
-) -> Tuple[int, float, Dict, GameRecord | None]:
-    """Run a single MCTS game and return score, time, breakdown, and optional game record."""
+) -> Tuple[int, float, Dict, GameRecord | None, GameMetadata]:
+    """Run a single MCTS game and return score, time, breakdown, optional game record, and metadata."""
     # Seed random before game creation for reproducible tile bag shuffle
     if seed is not None:
         random.seed(seed)
 
     game = SimulationMode(BOARD_1)
+
+    # Capture game metadata (cats, goals, board configuration)
+    metadata = GameMetadata.from_game(game)
 
     # Create recorder with MCTS config if recording
     recorder = None
@@ -132,7 +136,7 @@ def run_single_game(
         print(f"  Score: {score} ({elapsed:.1f}s)")
 
     game_record = recorder.finalize() if recorder else None
-    return score, elapsed, breakdown, game_record
+    return score, elapsed, breakdown, game_record, metadata
 
 
 def run_random_game(seed: Optional[int] = None) -> int:
@@ -149,7 +153,7 @@ def _run_game_worker(args: Tuple) -> Dict[str, Any]:
     Creates its own agent instance since agents can't be pickled across processes.
 
     Args is a tuple of (seed, agent_config, record, heuristic_config_dict)
-    Returns dict with game results.
+    Returns dict with game results including game metadata.
     """
     seed, agent_config, record, heuristic_config_dict = args
 
@@ -171,7 +175,7 @@ def _run_game_worker(args: Tuple) -> Dict[str, Any]:
     )
 
     # Run MCTS game
-    score, elapsed, breakdown, game_record = run_single_game(
+    score, elapsed, breakdown, game_record, metadata = run_single_game(
         agent, verbose=False, record=record, seed=seed
     )
 
@@ -193,6 +197,7 @@ def _run_game_worker(args: Tuple) -> Dict[str, Any]:
         "goals_total": goals_total,
         "buttons_total": buttons_total,
         "game_record": game_record,
+        "metadata": metadata,
     }
 
 
@@ -211,7 +216,7 @@ def run_benchmark(
     workers: int = 4,
     cat_ratio: float = 1.0,
     button_ratio: float = 1.0,
-) -> Tuple[Dict[str, Any], List[str], Optional[List[int]]]:
+) -> Tuple[Dict[str, Any], List[str], Optional[List[int]], List[GameMetadata]]:
     """
     Run benchmark and log to MLflow.
 
@@ -222,7 +227,7 @@ def run_benchmark(
         cat_ratio: Ratio of cat weight to goal weight (default 1.0)
         button_ratio: Ratio of button weight to goal weight (default 1.0)
 
-    Returns (results dict, list of game record filenames, seeds used).
+    Returns (results dict, list of game record filenames, seeds used, game metadata list).
     """
     # Agent config (passed to workers, not the agent itself)
     agent_config = {
@@ -255,6 +260,7 @@ def run_benchmark(
     mcts_times = []
     random_scores = []
     game_record_files = []
+    game_metadata_list = []
 
     # Score breakdown accumulators
     cat_scores = []
@@ -315,6 +321,10 @@ def run_benchmark(
         goal_scores.append(result['goals_total'])
         button_scores.append(result['buttons_total'])
 
+        # Collect game metadata
+        if result['metadata']:
+            game_metadata_list.append(result['metadata'])
+
         # Save game record if present
         if result['game_record']:
             record_path = save_game_record(result['game_record'])
@@ -343,7 +353,7 @@ def run_benchmark(
         "button_score_mean": mean(button_scores),
     }
 
-    return results, game_record_files, seeds_used
+    return results, game_record_files, seeds_used, game_metadata_list
 
 
 def log_to_mlflow(
@@ -352,9 +362,10 @@ def log_to_mlflow(
     tags: Dict[str, str] = None,
     run_name: str = None,
     game_record_files: List[str] = None,
-    seeds_used: Optional[List[int]] = None
+    seeds_used: Optional[List[int]] = None,
+    game_metadata_list: Optional[List[GameMetadata]] = None
 ):
-    """Log benchmark results to MLflow."""
+    """Log benchmark results to MLflow including game metadata."""
     with mlflow.start_run(run_name=run_name):
         # Log parameters
         mlflow.log_params(params)
@@ -383,6 +394,28 @@ def log_to_mlflow(
         if game_record_files:
             mlflow.set_tag("game_records", ",".join(game_record_files))
             mlflow.log_param("n_game_records", len(game_record_files))
+
+        # Log game metadata (cats, goals, boards used across all games)
+        if game_metadata_list:
+            # Collect unique configurations seen across games
+            all_cats = set()
+            all_goals = set()
+            all_boards = set()
+
+            for metadata in game_metadata_list:
+                all_cats.update(metadata.cat_names)
+                all_goals.update(metadata.goal_names)
+                all_boards.add(metadata.board_name)
+
+            # Log as tags for easy filtering
+            mlflow.set_tag("cats_used", ",".join(sorted(all_cats)))
+            mlflow.set_tag("goals_used", ",".join(sorted(all_goals)))
+            mlflow.set_tag("boards_used", ",".join(sorted(all_boards)))
+
+            # Log first game's full metadata as parameters (representative sample)
+            first_metadata = game_metadata_list[0]
+            metadata_params = first_metadata.to_mlflow_params()
+            mlflow.log_params(metadata_params)
 
         print(f"\nMLflow run logged: {mlflow.active_run().info.run_id}")
 
@@ -474,7 +507,7 @@ def main():
                 "button_ratio": args.button_ratio,
             }
 
-            results, game_record_files, seeds_used = run_benchmark(
+            results, game_record_files, seeds_used, game_metadata = run_benchmark(
                 n_games=args.n_games,
                 iterations=iters,
                 exploration=args.exploration,
@@ -497,7 +530,8 @@ def main():
             if not args.no_mlflow:
                 tags = {"sweep": "iterations", "tag": args.tag} if args.tag else {"sweep": "iterations"}
                 log_to_mlflow(results, params, tags, run_name=f"sweep_iter_{iters}",
-                             game_record_files=game_record_files, seeds_used=seeds_used)
+                             game_record_files=game_record_files, seeds_used=seeds_used,
+                             game_metadata_list=game_metadata)
     else:
         # Single run mode
         params = {
@@ -512,7 +546,7 @@ def main():
             "button_ratio": args.button_ratio,
         }
 
-        results, game_record_files, seeds_used = run_benchmark(
+        results, game_record_files, seeds_used, game_metadata = run_benchmark(
             n_games=args.n_games,
             iterations=args.iterations,
             exploration=args.exploration,
@@ -553,7 +587,8 @@ def main():
         if not args.no_mlflow:
             tags = {"tag": args.tag} if args.tag else None
             log_to_mlflow(results, params, tags, run_name=args.run_name,
-                         game_record_files=game_record_files, seeds_used=seeds_used)
+                         game_record_files=game_record_files, seeds_used=seeds_used,
+                         game_metadata_list=game_metadata)
             print("\nView results: mlflow ui")
 
 
