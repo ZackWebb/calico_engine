@@ -8,7 +8,7 @@ from player import Player
 from cat import initialize_game_cats
 from board_configurations import GOAL_POSITIONS, get_random_board, get_board_name
 from game_state import GameState, Action, TurnPhase
-from goal import create_default_goals
+from goal import create_random_goals
 from button import score_buttons, get_button_details
 
 
@@ -26,7 +26,7 @@ class GameMode(ABC):
         self.player = Player("Player1", self.tile_bag)
         self.market = Market(self.tile_bag)
         self.cats, _ = initialize_game_cats()
-        self.goals = create_default_goals()
+        self.goals = create_random_goals()
         self.turn_number = 0
         self.turn_phase = TurnPhase.PLACE_TILE
         self.board_config = board_config

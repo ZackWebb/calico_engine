@@ -41,7 +41,26 @@ game_records/              # Saved game recordings (JSON)
   - **Board variants:** BOARD_1 (Teal), BOARD_2 (Yellow), BOARD_3 (Purple), BOARD_4 (Green)
 - **Tiles:** 108 tiles in bag (6 colors × 6 patterns × 3 copies each)
 - **Turn:** Place tile from hand → Choose replacement from market
-- **Scoring:** Cats (pattern groups) + Goals (neighbor patterns) + Buttons (color clusters)
+- **Scoring:** Cats (pattern groups) + Goals (neighbor distributions) + Buttons (color clusters)
+
+## Goal System
+
+### Goal Selection
+
+At game start, 3 goal tiles are randomly selected from 6 available types and randomly placed on the 3 goal positions.
+
+### Goal Types
+
+| Goal | Single | Both | Requirement |
+|------|--------|------|-------------|
+| AAA-BBB | 8 | 13 | 3 of one color/pattern + 3 of another |
+| AA-BB-CC | 7 | 11 | 2 each of 3 colors/patterns |
+| All Unique | 10 | 15 | 6 different colors/patterns |
+| AAAA-BB | 7 | 14 | 4 of one color/pattern + 2 of another |
+| AA-BB-C-D | 5 | 7 | 2+2+1+1 distribution |
+| AAA-BB-C | 7 | 11 | 3+2+1 distribution |
+
+Goals score based on the 6 tiles adjacent to the goal position. "Single" points if color OR pattern condition is met; "Both" points if both conditions are met simultaneously.
 
 ## Cat System
 
@@ -187,3 +206,4 @@ Key test files:
 ## Known TODOs
 
 - [ ] Add remaining cats to complete buckets (6 more cats needed)
+- [ ] Add remaining goal tile scoring visuals/display

@@ -1,5 +1,9 @@
 import pytest
-from source.goal import GoalAAA_BBB, GoalAA_BB_CC, GoalAllUnique, create_default_goals
+from source.goal import (
+    GoalAAA_BBB, GoalAA_BB_CC, GoalAllUnique,
+    GoalAAAA_BB, GoalAA_BB_C_D, GoalAAA_BB_C,
+    create_default_goals, create_random_goals, ALL_GOAL_CLASSES
+)
 from source.hex_grid import HexGrid
 from source.tile import Tile, Color, Pattern
 
@@ -171,6 +175,203 @@ class TestGoalAllUnique:
         assert self.goal.score(self.grid) == 0
 
 
+class TestGoalAAAA_BB:
+    """Test the AAAA-BB goal (4 of one type, 2 of another)."""
+
+    def setup_method(self):
+        self.grid = HexGrid()
+        self.goal = GoalAAAA_BB((-2, 1, 1))
+
+    def get_neighbor_positions(self):
+        """Get the 6 neighbors of the goal position."""
+        return self.grid.get_neighbors(-2, 1, 1)
+
+    def test_no_neighbors_scores_zero(self):
+        # Empty grid
+        assert self.goal.score(self.grid) == 0
+
+    def test_partial_neighbors_scores_zero(self):
+        # Only fill 4 neighbors
+        neighbors = self.get_neighbor_positions()
+        for i, pos in enumerate(neighbors[:4]):
+            self.grid.set_tile(*pos, Tile(Color.BLUE, Pattern.DOTS))
+        assert self.goal.score(self.grid) == 0
+
+    def test_color_4_2_scores_7(self):
+        # 4 blue, 2 pink - satisfies color condition only
+        neighbors = self.get_neighbor_positions()
+        for i, pos in enumerate(neighbors):
+            color = Color.BLUE if i < 4 else Color.PINK
+            pattern = Pattern(i + 1)  # All different patterns
+            self.grid.set_tile(*pos, Tile(color, pattern))
+        assert self.goal.score(self.grid) == 7
+
+    def test_pattern_4_2_scores_7(self):
+        # All different colors, but 4 dots and 2 leaves
+        neighbors = self.get_neighbor_positions()
+        colors = list(Color)[:6]
+        for i, pos in enumerate(neighbors):
+            pattern = Pattern.DOTS if i < 4 else Pattern.LEAVES
+            self.grid.set_tile(*pos, Tile(colors[i], pattern))
+        assert self.goal.score(self.grid) == 7
+
+    def test_both_conditions_scores_14(self):
+        # 4 blue dots, 2 pink leaves
+        neighbors = self.get_neighbor_positions()
+        for i, pos in enumerate(neighbors):
+            if i < 4:
+                self.grid.set_tile(*pos, Tile(Color.BLUE, Pattern.DOTS))
+            else:
+                self.grid.set_tile(*pos, Tile(Color.PINK, Pattern.LEAVES))
+        assert self.goal.score(self.grid) == 14
+
+    def test_wrong_distribution_3_3_scores_zero(self):
+        # 3-3 split doesn't count for this goal
+        neighbors = self.get_neighbor_positions()
+        for i, pos in enumerate(neighbors):
+            color = Color.BLUE if i < 3 else Color.PINK
+            self.grid.set_tile(*pos, Tile(color, Pattern(i + 1)))
+        assert self.goal.score(self.grid) == 0
+
+    def test_wrong_distribution_5_1_scores_zero(self):
+        # 5-1 split doesn't count
+        neighbors = self.get_neighbor_positions()
+        for i, pos in enumerate(neighbors):
+            color = Color.BLUE if i < 5 else Color.PINK
+            self.grid.set_tile(*pos, Tile(color, Pattern(i + 1)))
+        assert self.goal.score(self.grid) == 0
+
+
+class TestGoalAA_BB_C_D:
+    """Test the AA-BB-C-D goal (2-2-1-1 distribution)."""
+
+    def setup_method(self):
+        self.grid = HexGrid()
+        self.goal = GoalAA_BB_C_D((1, -1, 0))
+
+    def get_neighbor_positions(self):
+        return self.grid.get_neighbors(1, -1, 0)
+
+    def test_no_neighbors_scores_zero(self):
+        assert self.goal.score(self.grid) == 0
+
+    def test_color_2_2_1_1_scores_5(self):
+        # 2 blue, 2 pink, 1 green, 1 yellow
+        neighbors = self.get_neighbor_positions()
+        colors = [Color.BLUE, Color.BLUE, Color.PINK, Color.PINK, Color.GREEN, Color.YELLOW]
+        for i, pos in enumerate(neighbors):
+            pattern = Pattern(i + 1)  # All different patterns
+            self.grid.set_tile(*pos, Tile(colors[i], pattern))
+        assert self.goal.score(self.grid) == 5
+
+    def test_pattern_2_2_1_1_scores_5(self):
+        # All different colors, 2 dots, 2 leaves, 1 flowers, 1 stripes
+        neighbors = self.get_neighbor_positions()
+        colors = list(Color)[:6]
+        patterns = [Pattern.DOTS, Pattern.DOTS, Pattern.LEAVES, Pattern.LEAVES,
+                    Pattern.FLOWERS, Pattern.STRIPES]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(colors[i], patterns[i]))
+        assert self.goal.score(self.grid) == 5
+
+    def test_both_conditions_scores_7(self):
+        # 2 blue dots, 2 pink leaves, 1 green flowers, 1 yellow stripes
+        neighbors = self.get_neighbor_positions()
+        tiles = [
+            (Color.BLUE, Pattern.DOTS), (Color.BLUE, Pattern.DOTS),
+            (Color.PINK, Pattern.LEAVES), (Color.PINK, Pattern.LEAVES),
+            (Color.GREEN, Pattern.FLOWERS), (Color.YELLOW, Pattern.STRIPES),
+        ]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(*tiles[i]))
+        assert self.goal.score(self.grid) == 7
+
+    def test_wrong_distribution_2_2_2_scores_zero(self):
+        # 2-2-2 split doesn't count for this goal
+        neighbors = self.get_neighbor_positions()
+        colors = [Color.BLUE, Color.BLUE, Color.PINK, Color.PINK, Color.GREEN, Color.GREEN]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(colors[i], Pattern(i + 1)))
+        assert self.goal.score(self.grid) == 0
+
+    def test_wrong_distribution_3_2_1_scores_zero(self):
+        # 3-2-1 split doesn't count for this goal
+        neighbors = self.get_neighbor_positions()
+        colors = [Color.BLUE, Color.BLUE, Color.BLUE, Color.PINK, Color.PINK, Color.GREEN]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(colors[i], Pattern(i + 1)))
+        assert self.goal.score(self.grid) == 0
+
+
+class TestGoalAAA_BB_C:
+    """Test the AAA-BB-C goal (3-2-1 distribution)."""
+
+    def setup_method(self):
+        self.grid = HexGrid()
+        self.goal = GoalAAA_BB_C((0, 1, -1))
+
+    def get_neighbor_positions(self):
+        return self.grid.get_neighbors(0, 1, -1)
+
+    def test_no_neighbors_scores_zero(self):
+        assert self.goal.score(self.grid) == 0
+
+    def test_color_3_2_1_scores_7(self):
+        # 3 blue, 2 pink, 1 green
+        neighbors = self.get_neighbor_positions()
+        colors = [Color.BLUE, Color.BLUE, Color.BLUE, Color.PINK, Color.PINK, Color.GREEN]
+        for i, pos in enumerate(neighbors):
+            pattern = Pattern(i + 1)  # All different patterns
+            self.grid.set_tile(*pos, Tile(colors[i], pattern))
+        assert self.goal.score(self.grid) == 7
+
+    def test_pattern_3_2_1_scores_7(self):
+        # All different colors, 3 dots, 2 leaves, 1 flowers
+        neighbors = self.get_neighbor_positions()
+        colors = list(Color)[:6]
+        patterns = [Pattern.DOTS, Pattern.DOTS, Pattern.DOTS,
+                    Pattern.LEAVES, Pattern.LEAVES, Pattern.FLOWERS]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(colors[i], patterns[i]))
+        assert self.goal.score(self.grid) == 7
+
+    def test_both_conditions_scores_11(self):
+        # 3 blue dots, 2 pink leaves, 1 green flowers
+        neighbors = self.get_neighbor_positions()
+        tiles = [
+            (Color.BLUE, Pattern.DOTS), (Color.BLUE, Pattern.DOTS), (Color.BLUE, Pattern.DOTS),
+            (Color.PINK, Pattern.LEAVES), (Color.PINK, Pattern.LEAVES),
+            (Color.GREEN, Pattern.FLOWERS),
+        ]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(*tiles[i]))
+        assert self.goal.score(self.grid) == 11
+
+    def test_wrong_distribution_3_3_scores_zero(self):
+        # 3-3 split doesn't count for this goal
+        neighbors = self.get_neighbor_positions()
+        colors = [Color.BLUE, Color.BLUE, Color.BLUE, Color.PINK, Color.PINK, Color.PINK]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(colors[i], Pattern(i + 1)))
+        assert self.goal.score(self.grid) == 0
+
+    def test_wrong_distribution_4_2_scores_zero(self):
+        # 4-2 split doesn't count for this goal
+        neighbors = self.get_neighbor_positions()
+        colors = [Color.BLUE, Color.BLUE, Color.BLUE, Color.BLUE, Color.PINK, Color.PINK]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(colors[i], Pattern(i + 1)))
+        assert self.goal.score(self.grid) == 0
+
+    def test_wrong_distribution_2_2_2_scores_zero(self):
+        # 2-2-2 split doesn't count for this goal
+        neighbors = self.get_neighbor_positions()
+        colors = [Color.BLUE, Color.BLUE, Color.PINK, Color.PINK, Color.GREEN, Color.GREEN]
+        for i, pos in enumerate(neighbors):
+            self.grid.set_tile(*pos, Tile(colors[i], Pattern(i + 1)))
+        assert self.goal.score(self.grid) == 0
+
+
 class TestGoalPositions:
     """Test that goal positions are handled correctly."""
 
@@ -224,6 +425,68 @@ class TestCreateDefaultGoals:
         assert (-2, 1, 1) in positions
         assert (1, -1, 0) in positions
         assert (0, 1, -1) in positions
+
+
+class TestCreateRandomGoals:
+    """Test the random goal selection function."""
+
+    def test_creates_three_goals(self):
+        goals = create_random_goals()
+        assert len(goals) == 3
+
+    def test_goals_are_unique_types(self):
+        # Run multiple times to check randomness doesn't repeat types
+        for _ in range(10):
+            goals = create_random_goals()
+            types = [type(g).__name__ for g in goals]
+            assert len(types) == len(set(types)), "Goal types should be unique"
+
+    def test_uses_default_positions(self):
+        from source.board_configurations import GOAL_POSITIONS
+        goals = create_random_goals()
+        positions = {g.position for g in goals}
+        assert positions == set(GOAL_POSITIONS)
+
+    def test_all_goals_from_valid_classes(self):
+        for _ in range(20):  # Multiple runs to check randomness
+            goals = create_random_goals()
+            for goal in goals:
+                assert type(goal) in ALL_GOAL_CLASSES
+
+    def test_randomness_provides_variety_in_types(self):
+        # Run many times and verify we see different goal type combinations
+        seen_combinations = set()
+        for _ in range(50):
+            goals = create_random_goals()
+            combo = tuple(sorted(type(g).__name__ for g in goals))
+            seen_combinations.add(combo)
+        # With 6 choose 3 = 20 possible combinations, we should see many different ones
+        assert len(seen_combinations) > 5, "Should see variety in random type selections"
+
+    def test_randomness_provides_variety_in_arrangements(self):
+        # Run many times and verify we see different position arrangements
+        seen_arrangements = set()
+        for _ in range(50):
+            goals = create_random_goals()
+            # Track which goal type is at which position
+            arrangement = tuple((type(g).__name__, g.position) for g in goals)
+            seen_arrangements.add(arrangement)
+        # Should see variety in how goals are arranged on positions
+        assert len(seen_arrangements) > 10, "Should see variety in position arrangements"
+
+
+class TestAllGoalClasses:
+    """Test the ALL_GOAL_CLASSES list."""
+
+    def test_contains_all_six_goal_types(self):
+        assert len(ALL_GOAL_CLASSES) == 6
+        class_names = [c.__name__ for c in ALL_GOAL_CLASSES]
+        assert "GoalAAA_BBB" in class_names
+        assert "GoalAA_BB_CC" in class_names
+        assert "GoalAllUnique" in class_names
+        assert "GoalAAAA_BB" in class_names
+        assert "GoalAA_BB_C_D" in class_names
+        assert "GoalAAA_BB_C" in class_names
 
 
 class TestGameModeGoalIntegration:
