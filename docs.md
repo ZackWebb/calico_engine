@@ -34,10 +34,11 @@ game_records/              # Saved game recordings (JSON)
 
 ## Game Mechanics
 
-- **Board:** 47-position hexagonal grid
+- **Board:** 47-position hexagonal grid with 4 board variants (randomly selected at game start)
   - 22 pre-filled edge tiles (decorative border, used for button scoring)
   - 3 goal tile positions (fixed scoring reference points, cannot place tiles)
   - 22 playable empty positions (where player places tiles)
+  - **Board variants:** BOARD_1 (Teal), BOARD_2 (Yellow), BOARD_3 (Purple), BOARD_4 (Green)
 - **Tiles:** 108 tiles in bag (6 colors × 6 patterns × 3 copies each)
 - **Turn:** Place tile from hand → Choose replacement from market
 - **Scoring:** Cats (pattern groups) + Goals (neighbor patterns) + Buttons (color clusters)
@@ -182,17 +183,6 @@ Key test files:
 - `tests/test_game_record.py` - Recording/replay functionality
 - `tests/test_game_metadata.py` - Game metadata serialization
 - `tests/test_heuristic.py` - Heuristic evaluation
-
-## Recent Changes (Session Summary)
-
-1. **Verified MCTS Integrity:** Confirmed the AI cannot cheat - tile bag is shuffled per simulation branch
-2. **Removed `tile_tracker.py`:** Unused probability-tracking module was deleted (Monte Carlo sampling is sufficient)
-3. **Implemented Bucket-Based Cat Selection:** Cats organized into 3 buckets for balanced random selection
-4. **Added Tecolote Cat:** 4-in-a-line, 7 points, added to Bucket 2
-5. **Moved Rumi to Bucket 1:** Rumi now shares Bucket 1 with Millie
-6. **Fixed Flaky Cat Tests:** Tests now use deterministic fixtures instead of relying on random cat selection
-7. **Added GameMetadata Module:** Flexible serialization for cats, goals, boards to MLflow
-8. **MLflow Now Tracks Game Config:** Benchmark runs log `cats_used`, `goals_used`, `boards_used` tags plus detailed params
 
 ## Known TODOs
 

@@ -41,7 +41,7 @@ class GameMetadata:
         Extract metadata from a SimulationMode or similar game instance.
 
         Args:
-            game: Game instance with .cats, .goals, and optionally .board_config
+            game: Game instance with .cats, .goals, and .board_name
         """
         metadata = cls()
 
@@ -56,10 +56,8 @@ class GameMetadata:
             metadata.goal_names.append(goal.name)
             metadata.goal_positions.append(list(goal.position))
 
-        # Board name (if identifiable)
-        # For now, we don't have a way to identify the board by name
-        # This can be extended when multiple boards are added
-        metadata.board_name = "BOARD_1"
+        # Board name from game instance
+        metadata.board_name = getattr(game, 'board_name', 'BOARD_1')
 
         return metadata
 

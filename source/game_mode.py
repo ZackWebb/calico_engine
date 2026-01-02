@@ -6,7 +6,7 @@ from tile_bag import TileBag
 from market import Market
 from player import Player
 from cat import initialize_game_cats
-from board_configurations import BOARD_1, GOAL_POSITIONS
+from board_configurations import GOAL_POSITIONS, get_random_board, get_board_name
 from game_state import GameState, Action, TurnPhase
 from goal import create_default_goals
 from button import score_buttons, get_button_details
@@ -16,8 +16,11 @@ class GameMode(ABC):
     """Abstract base class for game modes."""
 
     def __init__(self, board_config=None):
+        # Select random board if none provided
         if board_config is None:
-            board_config = BOARD_1
+            board_config, self.board_name = get_random_board()
+        else:
+            self.board_name = get_board_name(board_config)
 
         self.tile_bag = TileBag()
         self.player = Player("Player1", self.tile_bag)

@@ -1,11 +1,18 @@
 from hex_grid import Color, Pattern
+import random
 
 # Goal tile positions - these cannot have regular tiles placed on them
 GOAL_POSITIONS = [
     (-2, 1, 1),
-    (1, -1, 0), 
+    (1, -1, 0),
     (0, 1, -1),
 ]
+
+# Board name constants
+BOARD_1_NAME = "BOARD_1"  # Teal Board
+BOARD_2_NAME = "BOARD_2"  # Yellow Board
+BOARD_3_NAME = "BOARD_3"  # Purple Board
+BOARD_4_NAME = "BOARD_4"  # Green Board
 
 BOARD_1 = {
     # Teal Board
@@ -151,24 +158,41 @@ BOARD_4 = {
     (-2, 4, -2): (Color.PURPLE, Pattern.DOTS),
 }
 
-TEST_BOARD_ALL_CATS = {
-    # Format: (q, r, s): (Color, Pattern)
-    # Note: In cube coordinates, q + r + s should always equal 0
+# All available boards for random selection
+ALL_BOARDS = [
+    (BOARD_1, BOARD_1_NAME),
+    (BOARD_2, BOARD_2_NAME),
+    (BOARD_3, BOARD_3_NAME),
+    (BOARD_4, BOARD_4_NAME),
+]
 
-    # Leo's condition: 5 DOTS in a line along east direction (1, 0, -1)
-    (-2, 0, 2): (Color.BLUE, Pattern.DOTS),
-    (-1, 0, 1): (Color.BLUE, Pattern.DOTS),
-    (0, 0, 0): (Color.BLUE, Pattern.DOTS),
-    (1, 0, -1): (Color.BLUE, Pattern.DOTS),
-    (2, 0, -2): (Color.BLUE, Pattern.DOTS),
-
-    # Millie's condition: 3 FLOWERS touching (cluster)
-    (0, 1, -1): (Color.PINK, Pattern.FLOWERS),
-    (1, 1, -2): (Color.YELLOW, Pattern.FLOWERS),
-    (0, 2, -2): (Color.GREEN, Pattern.FLOWERS),
-
-    # Rumi's condition: 3 SWIRLS in a line along northwest direction (0, -1, 1)
-    (2, -2, 0): (Color.PURPLE, Pattern.SWIRLS),
-    (2, -3, 1): (Color.TEAL, Pattern.SWIRLS),
-    (2, -4, 2): (Color.YELLOW, Pattern.SWIRLS),
+# Mapping from config dict to name (for reverse lookup)
+BOARD_NAMES = {
+    id(BOARD_1): BOARD_1_NAME,
+    id(BOARD_2): BOARD_2_NAME,
+    id(BOARD_3): BOARD_3_NAME,
+    id(BOARD_4): BOARD_4_NAME,
 }
+
+
+def get_random_board():
+    """
+    Randomly select a board configuration.
+
+    Returns:
+        Tuple of (board_config dict, board_name str)
+    """
+    return random.choice(ALL_BOARDS)
+
+
+def get_board_name(board_config) -> str:
+    """
+    Get the name of a board configuration.
+
+    Args:
+        board_config: The board configuration dict
+
+    Returns:
+        Board name string, or "UNKNOWN" if not recognized
+    """
+    return BOARD_NAMES.get(id(board_config), "UNKNOWN")
