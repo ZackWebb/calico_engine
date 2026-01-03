@@ -399,6 +399,7 @@ def benchmark(
     seeds: Optional[str] = typer.Option(None, "--seeds", help="Seeds for reproducibility: '0-9', 'fixed', or '0,5,10'"),
     cat_ratio: float = typer.Option(1.0, "--cat-ratio", help="Cat weight ratio relative to goals (default: 1.0)"),
     button_ratio: float = typer.Option(1.0, "--button-ratio", help="Button weight ratio relative to goals (default: 1.0)"),
+    goal_rollout_depth: int = typer.Option(8, "--goal-rollout-depth", help="Moves to simulate during goal selection (default: 8, -1 for full rollout)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """
@@ -447,6 +448,8 @@ def benchmark(
         cmd.extend(["--cat-ratio", str(cat_ratio)])
     if button_ratio != 1.0:
         cmd.extend(["--button-ratio", str(button_ratio)])
+    if goal_rollout_depth != 8:
+        cmd.extend(["--goal-rollout-depth", str(goal_rollout_depth)])
     if verbose:
         cmd.append("-v")
 

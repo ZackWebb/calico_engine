@@ -18,6 +18,14 @@ from heuristic import (
 )
 
 
+def complete_goal_selection(game):
+    """Helper to complete goal selection phase and transition to tile placement."""
+    if game.turn_phase == TurnPhase.GOAL_SELECTION:
+        actions = game.get_legal_actions()
+        game.apply_action(actions[0])
+    return game
+
+
 class TestMCTSNode:
     """Tests for MCTSNode class."""
 
@@ -35,6 +43,7 @@ class TestMCTSNode:
     def test_untried_actions_populated(self):
         """Untried actions should be populated from state."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         # Default is combined actions
         node = MCTSNode(state=game.copy())
         expected_actions = game.get_combined_legal_actions()
@@ -158,21 +167,25 @@ class TestMCTSAgent:
     def test_select_action_returns_valid_action(self):
         """Agent should return a valid legal action."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         # Default is combined actions
         agent = MCTSAgent(max_iterations=50)
         action = agent.select_action(game)
         legal_actions = game.get_combined_legal_actions()
         assert action in legal_actions
 
-        # Test with separate actions
+        # Test with separate actions - create fresh game
+        game2 = SimulationMode(BOARD_1)
+        complete_goal_selection(game2)
         agent_separate = MCTSAgent(max_iterations=50, use_combined_actions=False)
-        action_separate = agent_separate.select_action(game)
-        legal_separate = game.get_legal_actions()
+        action_separate = agent_separate.select_action(game2)
+        legal_separate = game2.get_legal_actions()
         assert action_separate in legal_separate
 
     def test_select_action_in_place_phase(self):
         """Action should be place_and_choose in place phase (default combined mode)."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         assert game.turn_phase == TurnPhase.PLACE_TILE
 
         agent = MCTSAgent(max_iterations=50)
@@ -187,6 +200,7 @@ class TestMCTSAgent:
     def test_select_action_in_place_phase_separate(self):
         """Action should be place_tile in place phase with separate actions."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         assert game.turn_phase == TurnPhase.PLACE_TILE
 
         agent = MCTSAgent(max_iterations=50, use_combined_actions=False)
@@ -199,6 +213,7 @@ class TestMCTSAgent:
     def test_select_action_in_market_phase(self):
         """Action should be choose_market in market phase (separate actions mode)."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
 
         # Move to market phase
         actions = game.get_legal_actions()

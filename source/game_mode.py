@@ -8,7 +8,7 @@ from player import Player
 from cat import initialize_game_cats
 from board_configurations import GOAL_POSITIONS, get_random_board, get_board_name
 from game_state import GameState, Action, TurnPhase
-from goal import create_random_goals
+from goal import create_goal_options, create_goals_from_selection
 from button import score_buttons, get_button_details
 
 
@@ -22,14 +22,28 @@ class GameMode(ABC):
         else:
             self.board_name = get_board_name(board_config)
 
-        self.tile_bag = TileBag()
-        self.player = Player("Player1", self.tile_bag)
-        self.market = Market(self.tile_bag)
-        self.cats, _ = initialize_game_cats()
-        self.goals = create_random_goals()
-        self.turn_number = 0
-        self.turn_phase = TurnPhase.PLACE_TILE
         self.board_config = board_config
+        self.tile_bag = TileBag()
+        self.cats, _ = initialize_game_cats()
+
+        # Goal selection: 4 options, player chooses 3
+        self.goal_options: List[type] = create_goal_options()  # 4 goal classes
+        self.goal_positions: List[Tuple[int, int, int]] = list(GOAL_POSITIONS)
+        self.goals: List = []  # Empty until goal selection complete
+
+        # Game starts in goal selection phase
+        self.turn_number = 0
+        self.turn_phase = TurnPhase.GOAL_SELECTION
+
+        # Create player with empty hand (tiles drawn after goal selection)
+        self.player = Player.__new__(Player)
+        self.player.name = "Player1"
+        self.player.grid = __import__('hex_grid', fromlist=['HexGrid']).HexGrid()
+        self.player.tiles = []  # No tiles yet
+
+        # Market not initialized until goal selection complete
+        self.market: Optional[Market] = None
+        self._tiles_initialized = False
 
         # Initialize player grid with board configuration and goal positions
         self.player.grid.initialize_from_config(board_config)
@@ -41,7 +55,7 @@ class GameMode(ABC):
         """Get current game state snapshot."""
         return GameState(
             player_hand=list(self.player.tiles),
-            market_tiles=list(self.market.tiles),
+            market_tiles=list(self.market.tiles) if self.market else [],
             empty_positions=self.player.grid.get_empty_positions(),
             turn_number=self.turn_number,
             turn_phase=self.turn_phase,
@@ -52,7 +66,10 @@ class GameMode(ABC):
         """Get list of legal actions for current phase."""
         actions = []
 
-        if self.turn_phase == TurnPhase.PLACE_TILE:
+        if self.turn_phase == TurnPhase.GOAL_SELECTION:
+            actions = self._enumerate_goal_selection_actions()
+
+        elif self.turn_phase == TurnPhase.PLACE_TILE:
             empty_positions = self.player.grid.get_empty_positions()
             for pos in empty_positions:
                 for hand_idx in range(len(self.player.tiles)):
@@ -69,6 +86,24 @@ class GameMode(ABC):
                     market_index=market_idx
                 ))
 
+        return actions
+
+    def _enumerate_goal_selection_actions(self) -> List[Action]:
+        """
+        Enumerate all 24 possible goal selection arrangements.
+
+        Player chooses 3 of 4 goals and assigns them to 3 positions.
+        P(4,3) = 4 * 3 * 2 = 24 arrangements.
+        """
+        from itertools import permutations
+
+        actions = []
+        # Each permutation is a way to select 3 from 4 in a specific order
+        for perm in permutations(range(4), 3):
+            actions.append(Action(
+                action_type="select_goals",
+                selected_goal_indices=perm
+            ))
         return actions
 
     def get_combined_legal_actions(self) -> List[Action]:
@@ -140,13 +175,46 @@ class GameMode(ABC):
 
     def apply_action(self, action: Action) -> bool:
         """Apply an action and update game state. Returns success."""
-        if action.action_type == "place_tile":
+        if action.action_type == "select_goals":
+            return self._do_select_goals(action)
+        elif action.action_type == "place_tile":
             return self._do_place_tile(action.position, action.hand_index)
         elif action.action_type == "choose_market":
             return self._do_choose_market(action.market_index)
         elif action.action_type == "place_and_choose":
             return self._do_place_and_choose(action)
         return False
+
+    def _do_select_goals(self, action: Action) -> bool:
+        """Execute goal selection and initialize tiles."""
+        if self.turn_phase != TurnPhase.GOAL_SELECTION:
+            return False
+
+        # Create goal instances from selection
+        self.goals = create_goals_from_selection(
+            self.goal_options,
+            action.selected_goal_indices,
+            self.goal_positions
+        )
+
+        # Now initialize tiles (player hand and market)
+        self._initialize_tiles()
+
+        # Transition to tile placement phase
+        self.turn_phase = TurnPhase.PLACE_TILE
+        return True
+
+    def _initialize_tiles(self):
+        """Initialize player hand and market after goal selection."""
+        if not self._tiles_initialized:
+            # Draw 2 tiles for player hand
+            self.player.tiles = [
+                self.tile_bag.draw_tile(),
+                self.tile_bag.draw_tile()
+            ]
+            # Initialize market with 3 tiles
+            self.market = Market(self.tile_bag)
+            self._tiles_initialized = True
 
     def _do_place_tile(self, position: Tuple[int, int, int], hand_index: int) -> bool:
         """Execute tile placement."""

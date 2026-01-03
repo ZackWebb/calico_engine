@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from simulation_mode import SimulationMode
-from game_state import Action
+from game_state import Action, TurnPhase
 
 if TYPE_CHECKING:
     from heuristic import HeuristicConfig
@@ -31,7 +31,10 @@ class MCTSNode:
     def __post_init__(self):
         """Initialize untried actions from state if not provided."""
         if not self.untried_actions and not self.is_terminal:
-            if self.use_combined_actions:
+            # Goal selection phase always uses get_legal_actions()
+            if self.state.turn_phase == TurnPhase.GOAL_SELECTION:
+                self.untried_actions = self.state.get_legal_actions()
+            elif self.use_combined_actions:
                 self.untried_actions = self.state.get_combined_legal_actions()
             else:
                 self.untried_actions = self.state.get_legal_actions()
@@ -96,6 +99,12 @@ class MCTSAgent:
         use_deterministic_rollout: Use greedy heuristic rollouts instead of random
         use_combined_actions: Use combined place_and_choose actions (atomic turns)
         heuristic_config: Configuration for heuristic weights (cat/goal/button weights)
+        goal_selection_iteration_multiplier: Multiplier for iterations during goal selection
+        goal_selection_rollout_depth: Minimum moves to simulate before heuristic during
+            goal selection evaluation. Ensures the tree sees early game development.
+            0 = use heuristic immediately (original behavior)
+            -1 = full rollout to end of game
+            N = simulate N random moves, then evaluate with heuristic
         verbose: Print debug information
     """
 
@@ -108,6 +117,8 @@ class MCTSAgent:
         use_deterministic_rollout: bool = False,
         use_combined_actions: bool = True,
         heuristic_config: 'HeuristicConfig' = None,
+        goal_selection_iteration_multiplier: float = 2.5,
+        goal_selection_rollout_depth: int = 8,
         verbose: bool = False
     ):
         self.exploration_constant = exploration_constant
@@ -117,6 +128,8 @@ class MCTSAgent:
         self.use_deterministic_rollout = use_deterministic_rollout
         self.use_combined_actions = use_combined_actions
         self.heuristic_config = heuristic_config
+        self.goal_selection_iteration_multiplier = goal_selection_iteration_multiplier
+        self.goal_selection_rollout_depth = goal_selection_rollout_depth
         self.verbose = verbose
 
         # Import heuristic lazily to avoid circular imports
@@ -142,6 +155,12 @@ class MCTSAgent:
         evaluate = self._get_heuristic()
         return evaluate(state, self.heuristic_config)
 
+    def _get_iterations_for_phase(self, game: SimulationMode) -> int:
+        """Get the number of iterations to use based on game phase."""
+        if game.turn_phase == TurnPhase.GOAL_SELECTION:
+            return int(self.max_iterations * self.goal_selection_iteration_multiplier)
+        return self.max_iterations
+
     def select_action(self, game: SimulationMode) -> Action:
         """
         Select the best action using MCTS.
@@ -155,8 +174,11 @@ class MCTSAgent:
         # Create root node from current state
         root = MCTSNode(state=game.copy(), use_combined_actions=self.use_combined_actions)
 
+        # Get number of iterations (higher for goal selection)
+        iterations = self._get_iterations_for_phase(game)
+
         # Run MCTS iterations
-        for _ in range(self.max_iterations):
+        for _ in range(iterations):
             # Selection: traverse tree using UCB1
             node = self._select(root)
 
@@ -173,7 +195,9 @@ class MCTSAgent:
         # Return action of most-visited child (robust selection)
         if not root.children:
             # Edge case: no children expanded (very few iterations)
-            if self.use_combined_actions:
+            if game.turn_phase == TurnPhase.GOAL_SELECTION:
+                actions = game.get_legal_actions()
+            elif self.use_combined_actions:
                 actions = game.get_combined_legal_actions()
             else:
                 actions = game.get_legal_actions()
@@ -205,8 +229,11 @@ class MCTSAgent:
         # Create root node from current state
         root = MCTSNode(state=game.copy(), use_combined_actions=self.use_combined_actions)
 
+        # Get number of iterations (higher for goal selection)
+        iterations = self._get_iterations_for_phase(game)
+
         # Run MCTS iterations
-        for _ in range(self.max_iterations):
+        for _ in range(iterations):
             node = self._select(root)
 
             if not node.is_terminal and not node.is_fully_expanded:
@@ -217,7 +244,9 @@ class MCTSAgent:
 
         # Handle edge case
         if not root.children:
-            if self.use_combined_actions:
+            if game.turn_phase == TurnPhase.GOAL_SELECTION:
+                actions = game.get_legal_actions()
+            elif self.use_combined_actions:
                 actions = game.get_combined_legal_actions()
             else:
                 actions = game.get_legal_actions()
@@ -256,12 +285,23 @@ class MCTSAgent:
         Simulation phase: evaluate the node's position.
 
         Uses hybrid strategy:
+        - Goal selection: deeper partial rollouts to see early game development
         - Late game (few positions left): full rollout (random or deterministic)
         - Early/mid game: heuristic evaluation
         """
         remaining = len(node.state.player.grid.get_empty_positions())
 
-        if remaining <= self.late_game_threshold:
+        # Check if we're in or just after goal selection (no tiles placed yet)
+        # This ensures deeper evaluation for early game states after goal selection
+        is_early_game_after_goals = (
+            node.state.turn_phase != TurnPhase.GOAL_SELECTION and
+            remaining == 22  # Full board, just finished goal selection
+        )
+
+        if is_early_game_after_goals and self.goal_selection_rollout_depth != 0:
+            # Use deeper rollouts for goal selection evaluation
+            return self._partial_rollout(node.state, self.goal_selection_rollout_depth)
+        elif remaining <= self.late_game_threshold:
             # Late game: rollout for accuracy
             if self.use_deterministic_rollout:
                 return self._deterministic_rollout(node.state)
@@ -282,6 +322,52 @@ class MCTSAgent:
         state_copy = state.copy()
         return float(state_copy.play_random_game(use_combined_actions=self.use_combined_actions))
 
+    def _partial_rollout(self, state: SimulationMode, depth: int) -> float:
+        """
+        Play random moves for a specified depth, then evaluate with heuristic.
+
+        This gives deeper evaluation than pure heuristic while being faster than
+        full rollouts. Useful for goal selection where we need to see how early
+        game develops but don't need to simulate the entire game.
+
+        Args:
+            state: Game state to evaluate
+            depth: Number of moves to simulate (-1 for full rollout)
+
+        Returns:
+            Evaluation score (heuristic after partial rollout, or final score)
+        """
+        if depth == -1:
+            # Full rollout mode
+            return self._full_rollout(state)
+
+        state_copy = state.copy()
+        moves_made = 0
+
+        while not state_copy.is_game_over() and moves_made < depth:
+            # Get legal actions based on phase
+            if state_copy.turn_phase == TurnPhase.GOAL_SELECTION:
+                actions = state_copy.get_legal_actions()
+            elif self.use_combined_actions:
+                actions = state_copy.get_combined_legal_actions()
+            else:
+                actions = state_copy.get_legal_actions()
+
+            if not actions:
+                break
+
+            # Random action selection for speed
+            action = random.choice(actions)
+            state_copy.apply_action(action)
+            moves_made += 1
+
+        # If game ended during rollout, return actual score
+        if state_copy.is_game_over():
+            return float(state_copy.get_final_score())
+
+        # Otherwise evaluate with heuristic
+        return self._heuristic_evaluate(state_copy)
+
     def _deterministic_rollout(self, state: SimulationMode) -> float:
         """
         Play game using greedy heuristic instead of random.
@@ -293,8 +379,10 @@ class MCTSAgent:
         state_copy = state.copy()
 
         while not state_copy.is_game_over():
-            # Use combined actions if configured
-            if self.use_combined_actions:
+            # Goal selection uses regular actions, otherwise respect combined_actions flag
+            if state_copy.turn_phase == TurnPhase.GOAL_SELECTION:
+                actions = state_copy.get_legal_actions()
+            elif self.use_combined_actions:
                 actions = state_copy.get_combined_legal_actions()
             else:
                 actions = state_copy.get_legal_actions()

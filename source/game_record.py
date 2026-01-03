@@ -13,6 +13,52 @@ from game_state import Action, TurnPhase
 
 
 @dataclass
+class GoalSelectionCandidate:
+    """A candidate goal selection considered by MCTS."""
+    selected_indices: Tuple[int, int, int]  # Which 3 of 4 goals, in position order
+    visits: int
+    avg_score: float
+
+    def to_dict(self) -> dict:
+        return {
+            "selected_indices": list(self.selected_indices),
+            "visits": self.visits,
+            "avg_score": round(self.avg_score, 2)
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'GoalSelectionCandidate':
+        return cls(
+            selected_indices=tuple(data["selected_indices"]),
+            visits=data["visits"],
+            avg_score=data["avg_score"]
+        )
+
+
+@dataclass
+class GoalSelectionRecord:
+    """Record of the goal selection decision at game start."""
+    available_goals: List[str]  # 4 goal class names
+    selected_indices: Tuple[int, int, int]  # Which 3 were selected, in position order
+    candidates: List[GoalSelectionCandidate]  # Top candidates from MCTS
+
+    def to_dict(self) -> dict:
+        return {
+            "available_goals": self.available_goals,
+            "selected_indices": list(self.selected_indices),
+            "candidates": [c.to_dict() for c in self.candidates]
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'GoalSelectionRecord':
+        return cls(
+            available_goals=data["available_goals"],
+            selected_indices=tuple(data["selected_indices"]),
+            candidates=[GoalSelectionCandidate.from_dict(c) for c in data["candidates"]]
+        )
+
+
+@dataclass
 class CandidateMove:
     """A candidate move considered by MCTS."""
     action_type: str
@@ -192,10 +238,13 @@ class GameRecord:
     final_score: int
     score_breakdown: dict
 
-    format_version: str = "2.0"  # Version 2.0 supports combined actions
+    # Goal selection decision (optional for backward compatibility)
+    goal_selection: Optional[GoalSelectionRecord] = None
+
+    format_version: str = "3.0"  # Version 3.0 supports goal selection
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "format_version": self.format_version,
             "timestamp": self.timestamp,
             "mcts_config": self.mcts_config,
@@ -205,9 +254,16 @@ class GameRecord:
             "final_score": self.final_score,
             "score_breakdown": self.score_breakdown
         }
+        if self.goal_selection:
+            result["goal_selection"] = self.goal_selection.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> 'GameRecord':
+        goal_selection = None
+        if "goal_selection" in data:
+            goal_selection = GoalSelectionRecord.from_dict(data["goal_selection"])
+
         return cls(
             timestamp=data["timestamp"],
             mcts_config=data["mcts_config"],
@@ -216,6 +272,7 @@ class GameRecord:
             decisions=[DecisionRecord.from_dict(d) for d in data["decisions"]],
             final_score=data["final_score"],
             score_breakdown=data["score_breakdown"],
+            goal_selection=goal_selection,
             format_version=data.get("format_version", "1.0")  # Default to 1.0 for old records
         )
 
@@ -248,7 +305,7 @@ class GameRecorder:
         self.decisions: List[DecisionRecord] = []
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Record initial cat/goal configuration
+        # Record initial cat configuration (always available)
         self.cats = [
             CatRecord(
                 name=cat.name,
@@ -257,10 +314,17 @@ class GameRecorder:
             )
             for cat in game.cats
         ]
-        self.goals = [
-            GoalRecord(name=goal.name, position=list(goal.position))
-            for goal in game.goals
-        ]
+
+        # Goals are captured after goal selection (may be empty at init)
+        self.goals: List[GoalRecord] = []
+        if game.goals:
+            self.goals = [
+                GoalRecord(name=goal.name, position=list(goal.position))
+                for goal in game.goals
+            ]
+
+        # Goal selection record (set when record_goal_selection is called)
+        self.goal_selection: Optional[GoalSelectionRecord] = None
 
     def _get_board_snapshot(self) -> Dict[str, TileRecord]:
         """Capture current board state."""
@@ -270,6 +334,45 @@ class GameRecorder:
                 key = f"{pos[0]},{pos[1]},{pos[2]}"
                 board[key] = TileRecord.from_tile(tile)
         return board
+
+    def record_goal_selection(
+        self,
+        action: Action,
+        candidates: List[Tuple[Action, int, float]]
+    ):
+        """
+        Record the goal selection decision.
+
+        Args:
+            action: The select_goals action taken
+            candidates: List of (action, visits, avg_score) tuples for top candidates
+        """
+        # Get available goal names from game's goal_options
+        available_goals = [cls.__name__ for cls in self.game.goal_options]
+
+        # Convert candidates to GoalSelectionCandidate
+        goal_candidates = [
+            GoalSelectionCandidate(
+                selected_indices=a.selected_goal_indices,
+                visits=v,
+                avg_score=s
+            )
+            for a, v, s in candidates
+        ]
+
+        self.goal_selection = GoalSelectionRecord(
+            available_goals=available_goals,
+            selected_indices=action.selected_goal_indices,
+            candidates=goal_candidates
+        )
+
+    def _update_goals_after_selection(self):
+        """Update goals list after goal selection is complete."""
+        if self.game.goals and not self.goals:
+            self.goals = [
+                GoalRecord(name=goal.name, position=list(goal.position))
+                for goal in self.game.goals
+            ]
 
     def record_decision(
         self,
@@ -311,6 +414,9 @@ class GameRecorder:
 
     def finalize(self) -> GameRecord:
         """Create final game record after game ends."""
+        # Ensure goals are captured (in case they weren't at init)
+        self._update_goals_after_selection()
+
         button_info = self.game.get_button_scores()
 
         return GameRecord(
@@ -329,5 +435,6 @@ class GameRecorder:
                     "has_rainbow": button_info["has_rainbow"],
                     "rainbow_score": button_info["rainbow_score"]
                 }
-            }
+            },
+            goal_selection=self.goal_selection
         )

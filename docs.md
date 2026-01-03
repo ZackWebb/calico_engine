@@ -46,9 +46,25 @@ game_records/              # Saved game recordings (JSON)
 
 ## Goal System
 
-### Goal Selection
+### Goal Selection Decision Point
 
-At game start, 3 goal tiles are randomly selected from 6 available types and randomly placed on the 3 goal positions.
+At game start, 4 goals are randomly selected from 6 available types. The player (or MCTS) then chooses 3 of those 4 and assigns them to the 3 goal positions, creating P(4,3) = 24 possible arrangements. This is a strategic decision point that happens BEFORE any tiles are drawn.
+
+**Game phases:**
+1. `GOAL_SELECTION` - Choose 3 of 4 goals and assign positions (handled first)
+2. `PLACE_TILE` - Place tile from hand onto board
+3. `CHOOSE_MARKET` - Select replacement tile from market
+4. `GAME_OVER` - All tiles placed
+
+**Key implementation details:**
+- MCTS uses 2.5x iteration multiplier for goal selection phase
+- MCTS uses configurable rollout depth for goal selection evaluation (`--goal-rollout-depth`):
+  - `0` = heuristic only (fast but shallow)
+  - `8` (default) = 8 random moves then heuristic (balanced)
+  - `-1` = full rollout to game end (slowest but most accurate)
+- Tiles (hand and market) are not drawn until after goal selection
+- Play mode uses click-based UI for goal assignment (click goal, click board position)
+- Replay visualizer shows goal selection as step 0 with MCTS candidates
 
 ### Goal Types
 
@@ -142,6 +158,7 @@ uv run cli.py mlflow-ui         # Start MLflow UI at localhost:5000
 
 Games are recorded in `game_records/` as JSON files containing:
 - MCTS configuration
+- Goal selection decision (when applicable)
 - Cat and goal assignments (name, point value, patterns)
 - All decisions with candidates and visit counts
 - Final score breakdown
@@ -149,9 +166,14 @@ Games are recorded in `game_records/` as JSON files containing:
 Example structure:
 ```json
 {
-  "format_version": "2.0",
+  "format_version": "3.0",
   "timestamp": "20251231_095041",
   "mcts_config": {...},
+  "goal_selection": {
+    "available_goals": ["AAA-BBB", "AA-BB-CC", "All Unique", "AAAA-BB"],
+    "selected_indices": [0, 2, 3],
+    "candidates": [...]
+  },
   "cats": [
     {"name": "Rumi", "point_value": 5, "patterns": ["CLUBS", "FLOWERS"]}
   ],

@@ -11,6 +11,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'source'))
 from simulation_mode import SimulationMode
 from board_configurations import BOARD_1
 from game_metadata import GameMetadata, extract_game_metadata
+from game_state import TurnPhase
+
+
+def complete_goal_selection(game):
+    """Helper to complete goal selection phase and transition to tile placement."""
+    if game.turn_phase == TurnPhase.GOAL_SELECTION:
+        actions = game.get_legal_actions()
+        game.apply_action(actions[0])
+    return game
 
 
 class TestGameMetadata:
@@ -19,6 +28,7 @@ class TestGameMetadata:
     def test_from_game_captures_cats(self):
         """Should capture cat names and patterns from game."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
 
         assert len(metadata.cat_names) == 3
@@ -32,6 +42,7 @@ class TestGameMetadata:
     def test_from_game_captures_goals(self):
         """Should capture goal names and positions from game."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
 
         assert len(metadata.goal_names) == 3
@@ -44,6 +55,7 @@ class TestGameMetadata:
     def test_to_mlflow_params(self):
         """Should convert to MLflow parameters dict."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
         params = metadata.to_mlflow_params()
 
@@ -66,6 +78,7 @@ class TestGameMetadata:
     def test_to_mlflow_tags(self):
         """Should convert to MLflow tags dict."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
         tags = metadata.to_mlflow_tags()
 
@@ -80,6 +93,7 @@ class TestGameMetadata:
     def test_json_roundtrip(self):
         """Should serialize to and from JSON."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         original = GameMetadata.from_game(game)
 
         json_str = original.to_json()
@@ -95,6 +109,7 @@ class TestGameMetadata:
     def test_from_mlflow_params(self):
         """Should reconstruct from MLflow parameters."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         original = GameMetadata.from_game(game)
 
         params = original.to_mlflow_params()
@@ -108,6 +123,7 @@ class TestGameMetadata:
     def test_summary(self):
         """Should produce human-readable summary."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
         summary = metadata.summary()
 
@@ -122,6 +138,7 @@ class TestExtractGameMetadata:
     def test_extract_game_metadata(self):
         """Should extract metadata from game."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = extract_game_metadata(game)
 
         assert isinstance(metadata, GameMetadata)
@@ -135,6 +152,7 @@ class TestGoalArrangementKeys:
     def test_goal_arrangement_key_format(self):
         """Should produce key with goal@position format."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
         key = metadata.get_goal_arrangement_key()
 
@@ -151,6 +169,7 @@ class TestGoalArrangementKeys:
     def test_goal_arrangement_key_sorted(self):
         """Key should be sorted for consistent ordering."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
         key = metadata.get_goal_arrangement_key()
 
@@ -160,6 +179,7 @@ class TestGoalArrangementKeys:
     def test_goals_only_key_format(self):
         """Should produce sorted comma-separated goal names."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
         key = metadata.get_goals_only_key()
 
@@ -171,6 +191,7 @@ class TestGoalArrangementKeys:
     def test_setup_key_includes_all_components(self):
         """Setup key should include board, cats, and goal arrangement."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         metadata = GameMetadata.from_game(game)
         key = metadata.get_setup_key()
 

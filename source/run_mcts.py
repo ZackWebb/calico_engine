@@ -51,7 +51,10 @@ def run_mcts_game(agent: MCTSAgent, verbose: bool = False) -> Tuple[int, Simulat
             print(f"Turn {turn:2d} | Phase: {phase:13s} | "
                   f"Remaining: {remaining:2d} | Time: {elapsed:.2f}s")
 
-            if action.action_type == "place_and_choose":
+            if action.action_type == "select_goals":
+                goal_names = [game.goal_options[i].__name__ for i in action.selected_goal_indices]
+                print(f"         Action: Select goals {goal_names}")
+            elif action.action_type == "place_and_choose":
                 hand_tile = state.player_hand[action.hand_index]
                 print(f"         Action: Place {hand_tile.color.name} "
                       f"{hand_tile.pattern.name} at {action.position}")
@@ -65,7 +68,7 @@ def run_mcts_game(agent: MCTSAgent, verbose: bool = False) -> Tuple[int, Simulat
                 hand_tile = state.player_hand[action.hand_index]
                 print(f"         Action: Place {hand_tile.color.name} "
                       f"{hand_tile.pattern.name} at {action.position}")
-            else:
+            elif action.action_type == "choose_market":
                 market_tile = state.market_tiles[action.market_index]
                 print(f"         Action: Take {market_tile.color.name} "
                       f"{market_tile.pattern.name} from market")
@@ -105,6 +108,8 @@ def run_recorded_mcts_game(
     Returns:
         Tuple of (final_score, completed_game, game_record)
     """
+    from game_state import TurnPhase
+
     game = SimulationMode(BOARD_1)
 
     # Create recorder with MCTS config
@@ -125,6 +130,8 @@ def run_recorded_mcts_game(
         action, candidates = agent.select_action_with_analysis(game)
         elapsed = time.time() - start
 
+        current_phase = game.turn_phase
+
         if verbose:
             state = game.get_game_state()
             remaining = len(state.empty_positions)
@@ -132,7 +139,16 @@ def run_recorded_mcts_game(
             print(f"Turn {turn:2d} | Phase: {phase:13s} | "
                   f"Remaining: {remaining:2d} | Time: {elapsed:.2f}s")
 
-            if action.action_type == "place_and_choose":
+            if action.action_type == "select_goals":
+                goal_names = [game.goal_options[i].__name__ for i in action.selected_goal_indices]
+                print(f"         Action: Select goals {goal_names}")
+                print(f"         Candidates ({len(candidates)}):")
+                for i, (cand_action, visits, avg_score) in enumerate(candidates[:5]):
+                    marker = "*" if cand_action.selected_goal_indices == action.selected_goal_indices else " "
+                    cand_names = [game.goal_options[j].__name__ for j in cand_action.selected_goal_indices]
+                    print(f"           {marker} {i+1}. {cand_names} "
+                          f"(visits={visits}, avg={avg_score:.1f})")
+            elif action.action_type == "place_and_choose":
                 hand_tile = state.player_hand[action.hand_index]
                 print(f"         Action: Place {hand_tile.color.name} "
                       f"{hand_tile.pattern.name} at {action.position}")
@@ -151,23 +167,27 @@ def run_recorded_mcts_game(
                 print(f"         Action: Take {market_tile.color.name} "
                       f"{market_tile.pattern.name} from market")
 
-            # Show top candidates
-            print(f"         Candidates ({len(candidates)}):")
-            for i, (cand_action, visits, avg_score) in enumerate(candidates[:3]):
-                marker = "*" if cand_action == action else " "
-                if cand_action.action_type == "place_and_choose":
-                    market_str = f"+mkt[{cand_action.market_index}]" if cand_action.market_index is not None else "(final)"
-                    print(f"           {marker} {i+1}. place at {cand_action.position} {market_str} "
-                          f"(visits={visits}, avg={avg_score:.1f})")
-                elif cand_action.action_type == "place_tile":
-                    print(f"           {marker} {i+1}. place at {cand_action.position} "
-                          f"(visits={visits}, avg={avg_score:.1f})")
-                else:
-                    print(f"           {marker} {i+1}. market[{cand_action.market_index}] "
-                          f"(visits={visits}, avg={avg_score:.1f})")
+            # Show top candidates for non-goal-selection phases
+            if action.action_type != "select_goals":
+                print(f"         Candidates ({len(candidates)}):")
+                for i, (cand_action, visits, avg_score) in enumerate(candidates[:3]):
+                    marker = "*" if cand_action == action else " "
+                    if cand_action.action_type == "place_and_choose":
+                        market_str = f"+mkt[{cand_action.market_index}]" if cand_action.market_index is not None else "(final)"
+                        print(f"           {marker} {i+1}. place at {cand_action.position} {market_str} "
+                              f"(visits={visits}, avg={avg_score:.1f})")
+                    elif cand_action.action_type == "place_tile":
+                        print(f"           {marker} {i+1}. place at {cand_action.position} "
+                              f"(visits={visits}, avg={avg_score:.1f})")
+                    else:
+                        print(f"           {marker} {i+1}. market[{cand_action.market_index}] "
+                              f"(visits={visits}, avg={avg_score:.1f})")
 
-        # Record decision BEFORE applying action
-        recorder.record_decision(action, candidates)
+        # Record appropriately based on phase
+        if current_phase == TurnPhase.GOAL_SELECTION:
+            recorder.record_goal_selection(action, candidates)
+        else:
+            recorder.record_decision(action, candidates)
 
         game.apply_action(action)
         turn += 1

@@ -18,6 +18,15 @@ from game_record import (
     GameRecord, DecisionRecord, CandidateMove, TileRecord,
     CatRecord, GoalRecord, GameRecorder
 )
+from game_state import TurnPhase
+
+
+def complete_goal_selection(game):
+    """Helper to complete goal selection phase and transition to tile placement."""
+    if game.turn_phase == TurnPhase.GOAL_SELECTION:
+        actions = game.get_legal_actions()
+        game.apply_action(actions[0])
+    return game
 
 
 class TestTileRecord:
@@ -128,6 +137,7 @@ class TestGameRecorder:
     def test_recorder_creation(self):
         """Recorder should initialize with game and config."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         config = {"max_iterations": 100}
 
         recorder = GameRecorder(game, config)
@@ -139,6 +149,7 @@ class TestGameRecorder:
     def test_record_decision(self):
         """Recorder should capture decisions."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         config = {"max_iterations": 50}
         recorder = GameRecorder(game, config)
 
@@ -157,6 +168,7 @@ class TestGameRecorder:
     def test_finalize_creates_record(self):
         """Finalize should create complete GameRecord."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         config = {"max_iterations": 50}
         recorder = GameRecorder(game, config)
 
@@ -183,6 +195,7 @@ class TestGameRecord:
     def test_save_and_load(self):
         """GameRecord should save to and load from JSON."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         config = {"max_iterations": 50}
         recorder = GameRecorder(game, config)
 
@@ -223,6 +236,7 @@ class TestIntegrationRecording:
     def test_record_full_game(self):
         """Should record a complete MCTS game."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         agent = MCTSAgent(max_iterations=20)
         config = {
             "max_iterations": agent.max_iterations,
@@ -246,6 +260,7 @@ class TestIntegrationRecording:
     def test_recorded_game_save_load(self):
         """Recorded game should survive save/load cycle."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         agent = MCTSAgent(max_iterations=10)
         recorder = GameRecorder(game, {"iterations": 10})
 

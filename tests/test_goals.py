@@ -1,11 +1,26 @@
 import pytest
-from source.goal import (
+import sys
+import os
+
+# Add source directory to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'source'))
+
+from goal import (
     GoalAAA_BBB, GoalAA_BB_CC, GoalAllUnique,
     GoalAAAA_BB, GoalAA_BB_C_D, GoalAAA_BB_C,
     create_default_goals, create_random_goals, ALL_GOAL_CLASSES
 )
-from source.hex_grid import HexGrid
-from source.tile import Tile, Color, Pattern
+from hex_grid import HexGrid
+from tile import Tile, Color, Pattern
+from game_state import TurnPhase
+
+
+def complete_goal_selection(game):
+    """Helper to complete goal selection phase and transition to tile placement."""
+    if game.turn_phase == TurnPhase.GOAL_SELECTION:
+        actions = game.get_legal_actions()
+        game.apply_action(actions[0])
+    return game
 
 
 class TestGoalAAA_BBB:
@@ -493,22 +508,24 @@ class TestGameModeGoalIntegration:
     """Test goals integrate correctly with game modes."""
 
     def test_simulation_mode_has_goals(self):
-        from source.simulation_mode import SimulationMode
-        from source.board_configurations import BOARD_1
+        from simulation_mode import SimulationMode
+        from board_configurations import BOARD_1
 
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         assert len(game.goals) == 3
 
     def test_play_mode_has_goals(self):
-        from source.play_mode import PlayMode
-        from source.board_configurations import BOARD_1
+        from play_mode import PlayMode
+        from board_configurations import BOARD_1
 
         game = PlayMode(BOARD_1)
+        complete_goal_selection(game)
         assert len(game.goals) == 3
 
     def test_final_score_includes_goals(self):
-        from source.simulation_mode import SimulationMode
-        from source.board_configurations import BOARD_1
+        from simulation_mode import SimulationMode
+        from board_configurations import BOARD_1
 
         game = SimulationMode(BOARD_1)
         # Play a complete game
@@ -524,8 +541,8 @@ class TestGameModeGoalIntegration:
         assert total == expected
 
     def test_empty_positions_reduced_by_goals(self):
-        from source.simulation_mode import SimulationMode
-        from source.board_configurations import BOARD_1
+        from simulation_mode import SimulationMode
+        from board_configurations import BOARD_1
 
         game = SimulationMode(BOARD_1)
         empty_positions = game.player.grid.get_empty_positions()

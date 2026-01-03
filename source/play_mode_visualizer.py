@@ -22,6 +22,10 @@ BASE_GOAL_INFO_POSITION = (960, 30)  # Goal info right of market, vertically ali
 BASE_STATUS_POSITION = (50, 650)
 BASE_CATS_POSITION = (960, 120)  # Aligned with market
 
+# Goal selection UI positions (at scale 1.0)
+BASE_GOAL_OPTIONS_POSITION = (700, 50)  # 4 goal options row (to the right of board)
+BASE_GOAL_TILE_SIZE = 60                 # Goal option tile size
+
 
 class PlayModeVisualizer:
     """
@@ -55,6 +59,7 @@ class PlayModeVisualizer:
 
         # Visual feedback
         self.highlighted_hex: Optional[Tuple[int, int, int]] = None
+        self.mouse_pos: Tuple[int, int] = (0, 0)  # Track mouse for drag visuals
 
     def _load_base_tile_images(self):
         """Load tile images from disk at base size."""
@@ -203,6 +208,18 @@ class PlayModeVisualizer:
                 base_image, (self.grey_tile_width, self.grey_tile_height)
             )
 
+        # Goal selection UI positions and sizes
+        self.goal_options_position = (int(BASE_GOAL_OPTIONS_POSITION[0] * self.scale),
+                                       int(BASE_GOAL_OPTIONS_POSITION[1] * self.scale))
+        self.goal_selection_tile_size = int(BASE_GOAL_TILE_SIZE * self.scale)
+
+        # Scaled goal images for selection UI
+        self.goal_selection_images = {}
+        for name, base_image in self._base_goal_images.items():
+            self.goal_selection_images[name] = pygame.transform.scale(
+                base_image, (self.goal_selection_tile_size, self.goal_selection_tile_size)
+            )
+
     def _toggle_fullscreen(self):
         """Toggle between fullscreen and windowed mode."""
         self.is_fullscreen = not self.is_fullscreen
@@ -260,21 +277,33 @@ class PlayModeVisualizer:
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left mouse button
-                    self._handle_click(event.pos)
+                    if self.game.turn_phase == TurnPhase.GOAL_SELECTION:
+                        self._handle_goal_selection_click(event.pos)
+                    else:
+                        self._handle_click(event.pos)
                 elif event.button == 4:  # Mouse wheel up
                     self._adjust_scale(0.1)
                 elif event.button == 5:  # Mouse wheel down
                     self._adjust_scale(-0.1)
 
             if event.type == pygame.MOUSEMOTION:
-                self._handle_hover(event.pos)
+                if self.game.turn_phase == TurnPhase.GOAL_SELECTION:
+                    self._handle_goal_selection_hover(event.pos)
+                else:
+                    self._handle_hover(event.pos)
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     if self.is_fullscreen:
                         self._toggle_fullscreen()
+                    elif self.game.turn_phase == TurnPhase.GOAL_SELECTION:
+                        # Deselect current goal option
+                        self.game.dragging_goal_index = None
                     else:
                         self.game.deselect_hand_tile()
+                elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                    if self.game.turn_phase == TurnPhase.GOAL_SELECTION:
+                        self.game.confirm_goal_selection()
                 elif event.key == pygame.K_F11:
                     self._toggle_fullscreen()
                 elif event.key == pygame.K_EQUALS or event.key == pygame.K_PLUS:
@@ -344,6 +373,8 @@ class PlayModeVisualizer:
         x, y = pos
         base_x, base_y = self.market_position
         spacing = int(10 * self.scale)
+        if not self.game.market:
+            return None
         for i in range(len(self.game.market.tiles)):
             tile_x = base_x + i * (self.tile_size + spacing)
             if tile_x <= x <= tile_x + self.tile_size:
@@ -351,20 +382,239 @@ class PlayModeVisualizer:
                     return i
         return None
 
+    # --- Goal Selection UI Methods ---
+
+    def _get_goal_option_at_pos(self, pos: Tuple[int, int]) -> Optional[int]:
+        """Check if pos is over a goal option tile, return index (0-3)."""
+        mx, my = pos
+        base_x, base_y = self.goal_options_position
+        spacing = int(10 * self.scale)
+        tile_size = self.goal_selection_tile_size
+
+        # 2x2 grid layout
+        for i in range(4):
+            row = i // 2
+            col = i % 2
+            tile_x = base_x + col * (tile_size + spacing)
+            tile_y = base_y + row * (tile_size + spacing)
+            if tile_x <= mx <= tile_x + tile_size:
+                if tile_y <= my <= tile_y + tile_size:
+                    return i
+        return None
+
+    def _get_goal_position_at_hex(self, pos: Tuple[int, int]) -> Optional[int]:
+        """Check if pos is over a goal position on the board, return slot index (0-2)."""
+        hex_coord = self._screen_to_hex(pos)
+        if hex_coord is None:
+            return None
+
+        # Check if this hex is one of the goal positions
+        for i, goal_pos in enumerate(GOAL_POSITIONS):
+            if hex_coord == goal_pos:
+                return i
+        return None
+
+    def _handle_goal_selection_click(self, pos: Tuple[int, int]):
+        """Handle click during goal selection phase."""
+        # Check if clicked on a goal option (to select it)
+        option_idx = self._get_goal_option_at_pos(pos)
+        if option_idx is not None:
+            if self.game.is_goal_available(option_idx):
+                # Select this goal option
+                self.game.dragging_goal_index = option_idx
+            else:
+                # Already placed - clicking on it removes it from slot and selects it
+                self.game.start_drag_goal(option_idx)
+            return
+
+        # Check if clicked on a goal position on the board
+        slot_idx = self._get_goal_position_at_hex(pos)
+        if slot_idx is not None:
+            if self.game.dragging_goal_index is not None:
+                # Place selected goal at this position
+                self.game.drop_goal_on_slot(slot_idx)
+            else:
+                # No goal selected - check if there's one here to pick up
+                goal_idx = self.game.get_slot_goal_index(slot_idx)
+                if goal_idx is not None:
+                    self.game.start_drag_goal(goal_idx)
+
+    def _handle_goal_selection_hover(self, pos: Tuple[int, int]):
+        """Handle hover during goal selection to highlight valid placements."""
+        # Track mouse position for any visual feedback
+        self.mouse_pos = pos
+
+        # Highlight goal position if we have a goal selected
+        if self.game.dragging_goal_index is not None:
+            slot_idx = self._get_goal_position_at_hex(pos)
+            if slot_idx is not None:
+                self.highlighted_hex = GOAL_POSITIONS[slot_idx]
+            else:
+                self.highlighted_hex = None
+        else:
+            self.highlighted_hex = None
+
     def draw(self):
         """Render the game."""
         self.screen.fill((245, 235, 220))  # Warm beige background
 
-        self._draw_board()
-        self._draw_hand()
-        self._draw_market()
-        self._draw_goal_info()
-        self._draw_cats()
+        if self.game.turn_phase == TurnPhase.GOAL_SELECTION:
+            self._draw_goal_selection_screen()
+        else:
+            self._draw_board()
+            self._draw_hand()
+            self._draw_market()
+            self._draw_goal_info()
+            self._draw_cats()
+            self._draw_turn_info()
+
         self._draw_status()
-        self._draw_turn_info()
         self._draw_controls_hint()
 
         pygame.display.update()
+
+    def _get_goal_display_name(self, goal_class) -> str:
+        """Get display name for a goal class."""
+        goal_name = goal_class.__name__.replace('Goal', '').replace('_', '-')
+        display_names = {
+            'AAA-BBB': 'AAA-BBB',
+            'AA-BB-CC': 'AA-BB-CC',
+            'AllUnique': 'All Unique',
+            'AAAA-BB': 'AAAA-BB',
+            'AA-BB-C-D': 'AA-BB-C-D',
+            'AAA-BB-C': 'AAA-BB-C',
+        }
+        return display_names.get(goal_name, goal_name)
+
+    def _draw_goal_selection_screen(self):
+        """Draw the goal selection UI showing the board with goal positions."""
+        # Draw the board (showing edge tiles and goal positions)
+        self._draw_goal_selection_board()
+
+        # Draw goal options panel on the right
+        self._draw_goal_options_panel()
+
+        # Draw cats on the right (for reference)
+        self._draw_cats()
+
+    def _draw_goal_selection_board(self):
+        """Draw the hex grid with goal positions highlighted."""
+        # Draw all tiles on the board (edge tiles are pre-filled)
+        for hex_coord, tile in self.game.player.grid.grid.items():
+            hex_coord_array = np.array([hex_coord])
+            pixel = hx.cube_to_pixel(hex_coord_array, self.hex_radius)[0]
+            pos = pixel + self.center
+
+            if tile:
+                # Draw existing edge tile
+                key = (tile.color, tile.pattern)
+                if key in self.tile_images:
+                    self.screen.blit(
+                        self.tile_images[key],
+                        pos - np.array([self.hex_radius, self.hex_radius])
+                    )
+            else:
+                # Draw empty hex
+                pygame.draw.circle(self.screen, (180, 180, 180), pos.astype(int), self.hex_radius, 2)
+
+        # Draw goal positions with special handling
+        for slot_idx, goal_pos in enumerate(GOAL_POSITIONS):
+            hex_coord_array = np.array([goal_pos])
+            pixel = hx.cube_to_pixel(hex_coord_array, self.hex_radius)[0]
+            pos = pixel + self.center
+
+            # Check if a goal is assigned to this position
+            goal_idx = self.game.get_slot_goal_index(slot_idx)
+
+            if goal_idx is not None:
+                # Goal assigned - draw the goal tile
+                goal_class = self.game.goal_options[goal_idx]
+                display_name = self._get_goal_display_name(goal_class)
+
+                if display_name in self.goal_images:
+                    self.screen.blit(
+                        self.goal_images[display_name],
+                        pos - np.array([self.hex_radius, self.hex_radius])
+                    )
+                else:
+                    # Fallback
+                    pygame.draw.circle(self.screen, (200, 200, 100), pos.astype(int), self.hex_radius - 2)
+                    pygame.draw.circle(self.screen, (0, 150, 0), pos.astype(int), self.hex_radius, 3)
+            else:
+                # Empty goal slot - draw placeholder
+                is_highlighted = (self.highlighted_hex == goal_pos)
+
+                if is_highlighted and self.game.dragging_goal_index is not None:
+                    # Highlight when hovering with a goal selected
+                    pygame.draw.circle(self.screen, (200, 255, 200), pos.astype(int), self.hex_radius - 2)
+                    pygame.draw.circle(self.screen, (0, 200, 0), pos.astype(int), self.hex_radius, 3)
+                else:
+                    # Empty goal position
+                    pygame.draw.circle(self.screen, (255, 255, 200), pos.astype(int), self.hex_radius - 2)
+                    pygame.draw.circle(self.screen, (200, 150, 0), pos.astype(int), self.hex_radius, 2)
+
+                # Draw position number
+                pos_label = self.font.render(f"G{slot_idx + 1}", True, (100, 80, 0))
+                label_rect = pos_label.get_rect(center=pos.astype(int))
+                self.screen.blit(pos_label, label_rect)
+
+    def _draw_goal_options_panel(self):
+        """Draw the panel with goal options to choose from."""
+        tile_size = self.goal_selection_tile_size
+        spacing = int(10 * self.scale)
+        opt_x, opt_y = self.goal_options_position
+
+        # Title
+        title = self.large_font.render("Goal Selection", True, (0, 0, 0))
+        self.screen.blit(title, (opt_x, opt_y - int(35 * self.scale)))
+
+        # Instructions
+        if self.game.dragging_goal_index is not None:
+            instr_text = "Click a goal position (G1, G2, G3)"
+        else:
+            filled = sum(1 for slot in self.game.goal_slot_assignments if slot is not None)
+            if filled < 3:
+                instr_text = f"Click a goal to select ({filled}/3)"
+            else:
+                instr_text = "Press ENTER to confirm"
+        instr = self.font.render(instr_text, True, (80, 80, 80))
+        self.screen.blit(instr, (opt_x, opt_y + tile_size + int(10 * self.scale)))
+
+        # Draw goal options (4 options in a 2x2 grid)
+        for i, goal_class in enumerate(self.game.goal_options):
+            row = i // 2
+            col = i % 2
+            x = opt_x + col * (tile_size + spacing)
+            y = opt_y + row * (tile_size + spacing)
+
+            display_name = self._get_goal_display_name(goal_class)
+
+            # Check states
+            is_assigned = not self.game.is_goal_available(i)
+            is_selected = self.game.dragging_goal_index == i
+
+            # Draw the goal tile
+            if display_name in self.goal_selection_images:
+                img = self.goal_selection_images[display_name]
+                if is_assigned and not is_selected:
+                    # Darken assigned goals
+                    img = img.copy()
+                    img.set_alpha(100)
+                self.screen.blit(img, (x, y))
+            else:
+                # Fallback: draw rectangle
+                color = (150, 150, 150) if is_assigned else (200, 200, 100)
+                pygame.draw.rect(self.screen, color, (x, y, tile_size, tile_size))
+                text = self.font.render(display_name[:6], True, (0, 0, 0))
+                text_rect = text.get_rect(center=(x + tile_size // 2, y + tile_size // 2))
+                self.screen.blit(text, text_rect)
+
+            # Selection highlight
+            if is_selected:
+                border = int(3 * self.scale)
+                pygame.draw.rect(self.screen, (0, 200, 0),
+                               (x - border, y - border,
+                                tile_size + border * 2, tile_size + border * 2), border)
 
     def _draw_board(self):
         """Draw the hex grid."""

@@ -14,12 +14,21 @@ from game_state import Action, TurnPhase
 from mcts_agent import MCTSNode, MCTSAgent
 
 
+def complete_goal_selection(game):
+    """Helper to complete goal selection phase and transition to tile placement."""
+    if game.turn_phase == TurnPhase.GOAL_SELECTION:
+        actions = game.get_legal_actions()
+        game.apply_action(actions[0])
+    return game
+
+
 class TestCombinedActionGeneration:
     """Tests for get_combined_legal_actions()."""
 
     def test_combined_actions_count(self):
         """Combined actions should be positions x hand_tiles x market_tiles."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         state = game.get_game_state()
 
         combined = game.get_combined_legal_actions()
@@ -34,6 +43,7 @@ class TestCombinedActionGeneration:
     def test_combined_actions_have_all_fields(self):
         """Combined actions should have position, hand_index, and market_index."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         combined = game.get_combined_legal_actions()
 
         for action in combined:
@@ -45,6 +55,7 @@ class TestCombinedActionGeneration:
     def test_combined_actions_only_in_place_phase(self):
         """Combined actions should only be generated in PLACE_TILE phase."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
 
         # Move to market phase
         actions = game.get_legal_actions()
@@ -82,6 +93,7 @@ class TestCombinedActionExecution:
     def test_combined_action_places_tile(self):
         """Combined action should place a tile on the board."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         initial_empty = len(game.player.grid.get_empty_positions())
 
         combined = game.get_combined_legal_actions()
@@ -96,6 +108,7 @@ class TestCombinedActionExecution:
     def test_combined_action_takes_market_tile(self):
         """Combined action should take the specified market tile."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         initial_hand = list(game.player.tiles)
         market_tile_to_take = game.market.tiles[1]  # Index 1
 
@@ -112,6 +125,7 @@ class TestCombinedActionExecution:
     def test_combined_action_advances_turn(self):
         """Combined action should advance to next turn."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         assert game.turn_number == 0
 
         combined = game.get_combined_legal_actions()
@@ -124,6 +138,7 @@ class TestCombinedActionExecution:
     def test_combined_action_game_completion(self):
         """Game should complete with only combined actions."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
 
         while not game.is_game_over():
             combined = game.get_combined_legal_actions()
@@ -142,6 +157,7 @@ class TestMCTSWithCombinedActions:
     def test_mcts_returns_combined_action(self):
         """MCTS with combined actions should return place_and_choose."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         agent = MCTSAgent(max_iterations=50, use_combined_actions=True)
 
         action = agent.select_action(game)
@@ -154,6 +170,7 @@ class TestMCTSWithCombinedActions:
     def test_mcts_separate_returns_place_tile(self):
         """MCTS with separate actions should return place_tile in place phase."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         agent = MCTSAgent(max_iterations=50, use_combined_actions=False)
 
         action = agent.select_action(game)
@@ -165,6 +182,7 @@ class TestMCTSWithCombinedActions:
     def test_mcts_node_uses_combined_actions(self):
         """MCTSNode should use combined actions when configured."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         node = MCTSNode(state=game.copy(), use_combined_actions=True)
 
         for action in node.untried_actions:
@@ -173,6 +191,7 @@ class TestMCTSWithCombinedActions:
     def test_mcts_node_propagates_flag(self):
         """Expanded children should inherit use_combined_actions flag."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         root = MCTSNode(state=game.copy(), use_combined_actions=True)
 
         child = root.expand()
@@ -184,6 +203,7 @@ class TestMCTSWithCombinedActions:
     def test_mcts_completes_game_with_combined(self):
         """MCTS should complete a game using only combined actions."""
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         agent = MCTSAgent(max_iterations=50, use_combined_actions=True)
 
         while not game.is_game_over():

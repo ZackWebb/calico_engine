@@ -1,14 +1,29 @@
 import pytest
-from source.tile import Tile, Color, Pattern
-from source.tile_bag import TileBag
-from source.market import Market
-from source.player import Player
-from source.hex_grid import HexGrid
-from source.cat import CatMillie, CatLeo, CatRumi
-from source.goal import GoalAAA_BBB, GoalAA_BB_CC, GoalAllUnique
-from source.simulation_mode import SimulationMode
-from source.play_mode import PlayMode
-from source.board_configurations import BOARD_1
+import sys
+import os
+
+# Add source directory to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'source'))
+
+from tile import Tile, Color, Pattern
+from tile_bag import TileBag
+from market import Market
+from player import Player
+from hex_grid import HexGrid
+from cat import CatMillie, CatLeo, CatRumi
+from goal import GoalAAA_BBB, GoalAA_BB_CC, GoalAllUnique
+from simulation_mode import SimulationMode
+from play_mode import PlayMode
+from board_configurations import BOARD_1
+from game_state import TurnPhase
+
+
+def complete_goal_selection(game):
+    """Helper to complete goal selection phase and transition to tile placement."""
+    if game.turn_phase == TurnPhase.GOAL_SELECTION:
+        actions = game.get_legal_actions()
+        game.apply_action(actions[0])
+    return game
 
 
 class TestStringRepresentations:
@@ -133,15 +148,16 @@ class TestGameModeEdgeCases:
     """Test GameMode error paths."""
 
     def test_apply_invalid_action_type(self):
-        from source.game_state import Action
+        from game_state import Action
         game = SimulationMode(BOARD_1)
         action = Action(action_type="invalid_type")
         result = game.apply_action(action)
         assert result is False
 
     def test_place_tile_wrong_phase(self):
-        from source.game_state import Action
+        from game_state import Action
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         # Place a tile to get to CHOOSE_MARKET phase
         actions = game.get_legal_actions()
         game.apply_action(actions[0])
@@ -152,8 +168,9 @@ class TestGameModeEdgeCases:
         assert result is False
 
     def test_choose_market_wrong_phase(self):
-        from source.game_state import Action
+        from game_state import Action
         game = SimulationMode(BOARD_1)
+        complete_goal_selection(game)
         # Try to choose market while in PLACE_TILE phase
         action = Action(action_type="choose_market", market_index=0)
         result = game.apply_action(action)
@@ -170,6 +187,7 @@ class TestPlayModeEdgeCases:
 
     def test_state_change_callback(self):
         game = PlayMode(BOARD_1)
+        complete_goal_selection(game)
         callback_called = [False]
 
         def callback():
@@ -184,6 +202,7 @@ class TestPlayModeEdgeCases:
 
     def test_try_place_invalid_position(self):
         game = PlayMode(BOARD_1)
+        complete_goal_selection(game)
         game.select_hand_tile(0)
         # Try to place at invalid position
         result = game.try_place_at_position(100, 100, -200)

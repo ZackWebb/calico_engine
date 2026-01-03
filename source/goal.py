@@ -272,6 +272,45 @@ def create_random_goals() -> List[GoalTile]:
     return goals
 
 
+def create_goal_options() -> List[type]:
+    """
+    Create 4 randomly selected goal tile classes for the selection phase.
+
+    In the goal selection phase, the player is presented with 4 goals
+    and must choose 3 to place on the board.
+
+    Returns:
+        List of 4 GoalTile classes (not instantiated).
+    """
+    import random
+    return random.sample(ALL_GOAL_CLASSES, 4)
+
+
+def create_goals_from_selection(
+    goal_classes: List[type],
+    selected_indices: Tuple[int, int, int],
+    positions: List[Tuple[int, int, int]]
+) -> List[GoalTile]:
+    """
+    Create goal instances from a player's selection.
+
+    Args:
+        goal_classes: The 4 available goal classes to choose from
+        selected_indices: Which 3 of the 4 to use (indices into goal_classes),
+                         in the order they should be placed at positions
+        positions: The 3 goal positions on the board (GOAL_POSITIONS)
+
+    Returns:
+        List of 3 instantiated goal tiles at assigned positions
+    """
+    goals = []
+    for i, goal_idx in enumerate(selected_indices):
+        goal_class = goal_classes[goal_idx]
+        position = positions[i]
+        goals.append(goal_class(position))
+    return goals
+
+
 def create_default_goals() -> List[GoalTile]:
     """Create the three default goal tiles."""
     return [

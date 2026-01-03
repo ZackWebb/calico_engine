@@ -94,14 +94,13 @@ def run_single_game(
     seed: Optional[int] = None
 ) -> Tuple[int, float, Dict, GameRecord | None, GameMetadata]:
     """Run a single MCTS game and return score, time, breakdown, optional game record, and metadata."""
+    from game_state import TurnPhase
+
     # Seed random before game creation for reproducible tile bag shuffle
     if seed is not None:
         random.seed(seed)
 
     game = SimulationMode(BOARD_1)
-
-    # Capture game metadata (cats, goals, board configuration)
-    metadata = GameMetadata.from_game(game)
 
     # Create recorder with MCTS config if recording
     recorder = None
@@ -118,10 +117,19 @@ def run_single_game(
     start_time = time.time()
     while not game.is_game_over():
         action, candidates = agent.select_action_with_analysis(game) if record else (agent.select_action(game), None)
+
+        # Record appropriately based on phase
         if recorder:
-            recorder.record_decision(action, candidates)
+            if game.turn_phase == TurnPhase.GOAL_SELECTION:
+                recorder.record_goal_selection(action, candidates)
+            else:
+                recorder.record_decision(action, candidates)
+
         game.apply_action(action)
     elapsed = time.time() - start_time
+
+    # Capture game metadata AFTER goal selection (so goals are populated)
+    metadata = GameMetadata.from_game(game)
 
     score = game.get_final_score()
 
@@ -171,6 +179,7 @@ def _run_game_worker(args: Tuple) -> Dict[str, Any]:
         use_deterministic_rollout=agent_config["use_deterministic_rollout"],
         use_combined_actions=agent_config["use_combined_actions"],
         heuristic_config=heuristic_config,
+        goal_selection_rollout_depth=agent_config.get("goal_selection_rollout_depth", 8),
         verbose=False
     )
 
@@ -216,6 +225,7 @@ def run_benchmark(
     workers: int = 4,
     cat_ratio: float = 1.0,
     button_ratio: float = 1.0,
+    goal_rollout_depth: int = 8,
 ) -> Tuple[Dict[str, Any], List[str], Optional[List[int]], List[GameMetadata], List[int]]:
     """
     Run benchmark and log to MLflow.
@@ -226,6 +236,8 @@ def run_benchmark(
         workers: Number of parallel workers (default 4). Set to 1 for sequential.
         cat_ratio: Ratio of cat weight to goal weight (default 1.0)
         button_ratio: Ratio of button weight to goal weight (default 1.0)
+        goal_rollout_depth: Moves to simulate during goal selection eval (default 8).
+            0 = heuristic only, -1 = full rollout, N = N random moves then heuristic.
 
     Returns (results dict, list of game record filenames, seeds used, game metadata list, per-game scores).
     """
@@ -237,6 +249,7 @@ def run_benchmark(
         "use_heuristic": use_heuristic,
         "use_deterministic_rollout": use_deterministic_rollout,
         "use_combined_actions": use_combined_actions,
+        "goal_selection_rollout_depth": goal_rollout_depth,
     }
 
     # Heuristic config (passed as dict for pickling across processes)
@@ -529,6 +542,10 @@ def main():
     parser.add_argument("--button-ratio", type=float, default=1.0,
                        help="Button weight ratio relative to goals (default: 1.0)")
 
+    # Goal selection evaluation depth
+    parser.add_argument("--goal-rollout-depth", type=int, default=8,
+                       help="Moves to simulate during goal selection (default: 8, -1 for full rollout)")
+
     # Special modes
     parser.add_argument("--sweep", action="store_true",
                        help="Run parameter sweep across iterations")
@@ -575,6 +592,7 @@ def main():
                 "use_combined_actions": not args.separate,
                 "cat_ratio": args.cat_ratio,
                 "button_ratio": args.button_ratio,
+                "goal_rollout_depth": args.goal_rollout_depth,
             }
 
             results, game_record_files, seeds_used, game_metadata, per_game_scores = run_benchmark(
@@ -591,6 +609,7 @@ def main():
                 workers=args.workers,
                 cat_ratio=args.cat_ratio,
                 button_ratio=args.button_ratio,
+                goal_rollout_depth=args.goal_rollout_depth,
             )
 
             print(f"\nResults: mean={results['mcts_mean']:.1f}, "
@@ -614,6 +633,7 @@ def main():
             "use_combined_actions": not args.separate,
             "cat_ratio": args.cat_ratio,
             "button_ratio": args.button_ratio,
+            "goal_rollout_depth": args.goal_rollout_depth,
         }
 
         results, game_record_files, seeds_used, game_metadata, per_game_scores = run_benchmark(
@@ -630,6 +650,7 @@ def main():
             workers=args.workers,
             cat_ratio=args.cat_ratio,
             button_ratio=args.button_ratio,
+            goal_rollout_depth=args.goal_rollout_depth,
         )
 
         # Print summary

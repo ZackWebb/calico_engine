@@ -8,7 +8,7 @@ import hexy as hx
 import os
 from typing import Optional, Tuple, List, Dict
 
-from game_record import GameRecord, DecisionRecord, TileRecord
+from game_record import GameRecord, DecisionRecord, TileRecord, GoalSelectionRecord
 from tile import Tile, Color, Pattern
 from board_configurations import GOAL_POSITIONS
 
@@ -308,15 +308,37 @@ class ReplayVisualizer:
                 self.screen = pygame.display.set_mode(self.windowed_size, pygame.RESIZABLE)
             self._update_scaled_resources()
 
+    def has_goal_selection(self) -> bool:
+        """Check if this game record includes goal selection."""
+        return self.record.goal_selection is not None
+
+    def is_goal_selection_step(self) -> bool:
+        """Check if current step is the goal selection step."""
+        return self.has_goal_selection() and self.current_step == 0
+
+    def get_decision_index(self) -> int:
+        """Get the index into decisions array, accounting for goal selection step."""
+        if self.has_goal_selection():
+            return self.current_step - 1
+        return self.current_step
+
     def get_current_decision(self) -> Optional[DecisionRecord]:
         """Get the current decision record."""
-        if 0 <= self.current_step < len(self.record.decisions):
-            return self.record.decisions[self.current_step]
+        idx = self.get_decision_index()
+        if 0 <= idx < len(self.record.decisions):
+            return self.record.decisions[idx]
         return None
+
+    def get_total_steps(self) -> int:
+        """Get total number of steps including goal selection and final board."""
+        base = len(self.record.decisions) + 1  # decisions + final board
+        if self.has_goal_selection():
+            base += 1  # Add goal selection step
+        return base
 
     def is_final_step(self) -> bool:
         """Check if we're on the final step showing completed board."""
-        return self.current_step == len(self.record.decisions)
+        return self.current_step == self.get_total_steps() - 1
 
     def get_final_board_tiles(self) -> Dict[str, TileRecord]:
         """
@@ -340,23 +362,22 @@ class ReplayVisualizer:
         return final_board
 
     def step_forward(self):
-        """Move to next decision (includes final completed board step)."""
-        # Allow stepping to len(decisions) which shows completed board
-        if self.current_step < len(self.record.decisions):
+        """Move to next step (includes goal selection and final completed board)."""
+        if self.current_step < self.get_total_steps() - 1:
             self.current_step += 1
 
     def step_backward(self):
-        """Move to previous decision."""
+        """Move to previous step."""
         if self.current_step > 0:
             self.current_step -= 1
 
     def jump_to_start(self):
-        """Jump to first decision."""
+        """Jump to first step."""
         self.current_step = 0
 
     def jump_to_end(self):
         """Jump to final completed board."""
-        self.current_step = len(self.record.decisions)
+        self.current_step = self.get_total_steps() - 1
 
     def handle_events(self) -> bool:
         """Handle pygame events. Returns False to quit."""
@@ -417,7 +438,7 @@ class ReplayVisualizer:
         if self.auto_play:
             now = pygame.time.get_ticks()
             if now - self.last_auto_step >= self.auto_play_delay:
-                if self.current_step < len(self.record.decisions):
+                if self.current_step < self.get_total_steps() - 1:
                     self.step_forward()
                     self.last_auto_step = now
                 else:
@@ -433,7 +454,10 @@ class ReplayVisualizer:
         """Render the replay view."""
         self.screen.fill((245, 235, 220))  # Warm beige background
 
-        if self.is_final_step():
+        if self.is_goal_selection_step():
+            # Goal selection step: show available goals and selection
+            self._draw_goal_selection_step()
+        elif self.is_final_step():
             # Final step: show completed board
             self._draw_final_board()
             self._draw_final_info()
@@ -620,6 +644,102 @@ class ReplayVisualizer:
         score_text = f"Final Score: {self.record.final_score}"
         score_surface = self.large_font.render(score_text, True, (0, 100, 0))
         self.screen.blit(score_surface, (x, y))
+
+    def _draw_goal_selection_step(self):
+        """Draw the goal selection decision step."""
+        goal_selection = self.record.goal_selection
+        if not goal_selection:
+            return
+
+        # Header position
+        header_x = int(350 * self.scale)
+        header_y = int(50 * self.scale)
+
+        # Draw header
+        header_text = "Goal Selection"
+        header_surface = self.large_font.render(header_text, True, (0, 100, 0))
+        self.screen.blit(header_surface, (header_x, header_y))
+
+        # Draw available goals (4 goals in a row)
+        goals_y = int(100 * self.scale)
+        goal_spacing = int(120 * self.scale)
+        goals_start_x = int(200 * self.scale)
+
+        available_label = self.font.render("Available Goals (4):", True, (0, 0, 0))
+        self.screen.blit(available_label, (goals_start_x, goals_y - int(25 * self.scale)))
+
+        for i, goal_name in enumerate(goal_selection.available_goals):
+            x = goals_start_x + i * goal_spacing
+            y = goals_y
+
+            # Draw goal tile image
+            if goal_name in self.goal_images:
+                self.screen.blit(self.goal_images[goal_name], (x, y))
+            else:
+                # Fallback: draw placeholder
+                pygame.draw.rect(self.screen, (200, 200, 100),
+                               (x, y, self.tile_size, self.tile_size))
+                name_surface = self.small_font.render(goal_name[:8], True, (0, 0, 0))
+                self.screen.blit(name_surface, (x + int(5 * self.scale), y + int(20 * self.scale)))
+
+            # Draw goal name below
+            name_surface = self.small_font.render(goal_name, True, (80, 80, 80))
+            self.screen.blit(name_surface, (x, y + self.tile_size + int(5 * self.scale)))
+
+            # Highlight if selected (checkmark)
+            if i in goal_selection.selected_indices:
+                check_color = (0, 180, 0)
+                # Draw checkmark circle at top-right corner
+                check_x = x + self.tile_size - int(12 * self.scale)
+                check_y = y + int(8 * self.scale)
+                pygame.draw.circle(self.screen, check_color, (check_x, check_y), int(10 * self.scale))
+                check_surface = self.small_font.render("✓", True, (255, 255, 255))
+                check_rect = check_surface.get_rect(center=(check_x, check_y))
+                self.screen.blit(check_surface, check_rect)
+
+        # Draw selected arrangement (which 3 goals at which positions)
+        selection_y = goals_y + self.tile_size + int(60 * self.scale)
+        selection_label = self.font.render("Selected Arrangement:", True, (0, 0, 0))
+        self.screen.blit(selection_label, (goals_start_x, selection_y))
+
+        selection_y += int(30 * self.scale)
+        for pos_idx, goal_idx in enumerate(goal_selection.selected_indices):
+            goal_name = goal_selection.available_goals[goal_idx]
+            pos_label = ["Left", "Center", "Right"][pos_idx]
+            text = f"Position {pos_idx + 1} ({pos_label}): {goal_name}"
+            text_surface = self.font.render(text, True, (60, 60, 60))
+            self.screen.blit(text_surface, (goals_start_x + int(20 * self.scale), selection_y))
+            selection_y += int(25 * self.scale)
+
+        # Draw MCTS candidates
+        if self.show_candidates and goal_selection.candidates:
+            candidates_y = selection_y + int(30 * self.scale)
+            candidates_label = self.large_font.render("MCTS Candidates:", True, (100, 0, 100))
+            self.screen.blit(candidates_label, (goals_start_x, candidates_y))
+
+            candidates_y += int(30 * self.scale)
+            for i, candidate in enumerate(goal_selection.candidates[:5]):
+                # Build goal names string for this candidate
+                goal_names = [goal_selection.available_goals[idx]
+                              for idx in candidate.selected_indices]
+                arrangement_str = " | ".join(goal_names)
+
+                # Check if this is the chosen arrangement
+                is_chosen = candidate.selected_indices == goal_selection.selected_indices
+                marker = "*" if is_chosen else " "
+                color = (0, 150, 0) if is_chosen else (80, 80, 80)
+
+                text = f"{marker}{i + 1}. {arrangement_str}"
+                text_surface = self.font.render(text, True, color)
+                self.screen.blit(text_surface, (goals_start_x, candidates_y))
+
+                # Stats
+                stats_text = f"v={candidate.visits} avg={candidate.avg_score:.1f}"
+                stats_surface = self.small_font.render(stats_text, True, (120, 120, 120))
+                self.screen.blit(stats_surface,
+                               (goals_start_x + int(450 * self.scale), candidates_y + int(3 * self.scale)))
+
+                candidates_y += int(25 * self.scale)
 
     def _draw_hand(self, decision: DecisionRecord):
         """Draw player's hand tiles at current state."""
@@ -875,10 +995,19 @@ class ReplayVisualizer:
         """Draw status message."""
         x, y = self.status_position
 
-        # Total steps includes decisions + 1 for final completed board
-        total_steps = len(self.record.decisions) + 1
+        total_steps = self.get_total_steps()
 
-        if self.is_final_step():
+        if self.is_goal_selection_step():
+            # Goal selection step
+            step_text = f"Step 1 / {total_steps} (Goal Selection)"
+            step_surface = self.large_font.render(step_text, True, (0, 100, 150))
+            self.screen.blit(step_surface, (x, y))
+
+            # Phase info
+            phase_text = "Choose 3 of 4 goals and assign positions"
+            phase_surface = self.font.render(phase_text, True, (80, 80, 80))
+            self.screen.blit(phase_surface, (x, y + int(30 * self.scale)))
+        elif self.is_final_step():
             # Final step - completed board
             step_text = f"Step {total_steps} / {total_steps} (Complete)"
             step_surface = self.large_font.render(step_text, True, (0, 150, 0))
