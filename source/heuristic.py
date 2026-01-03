@@ -11,7 +11,7 @@ from collections import Counter
 from functools import lru_cache
 
 from hex_grid import HexGrid, Pattern, Color
-from cat import Cat, CatMillie, CatLeo, CatRumi
+from cat import Cat, CatMillie, CatLeo, CatRumi, CatTecolote
 from button import score_buttons, count_buttons_by_color
 
 
@@ -50,6 +50,7 @@ OVERLAP_DECAY = {
 
 # Cache for line enumerations (board structure doesn't change)
 _cached_5_lines: Optional[List[List[Tuple[int, int, int]]]] = None
+_cached_4_lines: Optional[List[List[Tuple[int, int, int]]]] = None
 _cached_3_lines: Optional[List[List[Tuple[int, int, int]]]] = None
 
 
@@ -132,6 +133,47 @@ def enumerate_all_3_lines(grid: HexGrid) -> List[List[Tuple[int, int, int]]]:
                     lines.append(line)
 
     _cached_3_lines = lines
+    return lines
+
+
+def enumerate_all_4_lines(grid: HexGrid) -> List[List[Tuple[int, int, int]]]:
+    """
+    Return all valid 4-position lines on the board.
+
+    A line is valid if all 4 positions exist in grid.all_positions.
+    Uses caching since board structure doesn't change during a game.
+    """
+    global _cached_4_lines
+    if _cached_4_lines is not None:
+        return _cached_4_lines
+
+    lines = []
+    all_pos = set(grid.all_positions)
+
+    # Three hex directions
+    directions = [
+        (1, 0, -1),   # east
+        (1, -1, 0),   # northeast
+        (0, -1, 1),   # northwest
+    ]
+
+    for start_pos in all_pos:
+        for dq, dr, ds in directions:
+            line = [start_pos]
+            q, r, s = start_pos
+            for _ in range(3):
+                q += dq
+                r += dr
+                s += ds
+                if (q, r, s) not in all_pos:
+                    break
+                line.append((q, r, s))
+            if len(line) == 4:
+                # Avoid duplicates (only keep if start < end lexicographically)
+                if line[0] < line[3]:
+                    lines.append(line)
+
+    _cached_4_lines = lines
     return lines
 
 
@@ -243,6 +285,48 @@ def evaluate_rumi_potential(grid: HexGrid, cat: Cat) -> float:
     return total
 
 
+def evaluate_tecolote_potential(grid: HexGrid, cat: Cat) -> float:
+    """
+    Evaluate Tecolote's 4-in-line potential with overlap decay.
+
+    Similar to Leo but for 4-position lines.
+    Tecolote scores 7 points per completed 4-in-line.
+    """
+    all_lines = enumerate_all_4_lines(grid)
+    total = 0.0
+
+    for pattern in cat.patterns:
+        line_scores = []
+        for line in all_lines:
+            count, blocked = evaluate_line_for_pattern(grid, line, pattern)
+            if not blocked and count >= 2:
+                # Base potential based on progress toward 4
+                if count == 3:
+                    base_potential = cat.point_value * 0.5  # 3/4 complete
+                else:  # count == 2
+                    base_potential = cat.point_value * 0.2  # 2/4 complete
+                line_scores.append((count, base_potential, frozenset(line)))
+
+        # Sort by progress (most complete first)
+        line_scores.sort(key=lambda x: x[0], reverse=True)
+
+        # Award full points for best line, decayed points for overlapping alternatives
+        awarded_positions: Set[Tuple[int, int, int]] = set()
+        for count, potential, positions in line_scores:
+            overlap = len(awarded_positions & positions)
+            if overlap == 0:
+                # No overlap - full value
+                total += potential
+            else:
+                # Overlapping - apply decay based on progress
+                decay = OVERLAP_DECAY.get(count, 0.2)
+                total += potential * decay
+
+            awarded_positions |= positions
+
+    return total
+
+
 def evaluate_millie_potential(grid: HexGrid, pattern: Pattern, point_value: int) -> float:
     """
     Evaluate Millie's cluster potential, only scoring pairs if a 3rd space is available.
@@ -348,6 +432,7 @@ def estimate_cat_potential(grid: HexGrid, cat: Cat) -> float:
     - Millie (3 touching): pairs with available 3rd space = 30% potential
     - Leo (5 in line): 4/5 = 50%, 3/5 = 30%, 2/5 = 15% (with overlap decay)
     - Rumi (3 in line): 2/3 = 30% (with overlap decay)
+    - Tecolote (4 in line): 3/4 = 50%, 2/4 = 20% (with overlap decay)
     """
     if isinstance(cat, CatMillie):
         # Sum potential for each pattern Millie accepts
@@ -361,6 +446,9 @@ def estimate_cat_potential(grid: HexGrid, cat: Cat) -> float:
 
     elif isinstance(cat, CatRumi):
         return evaluate_rumi_potential(grid, cat)
+
+    elif isinstance(cat, CatTecolote):
+        return evaluate_tecolote_potential(grid, cat)
 
     return 0.0
 
@@ -431,6 +519,21 @@ def estimate_goal_potential(grid: HexGrid, goal, config: HeuristicConfig = None)
         double_max = 15.0
         color_progress = _check_unique_for_values([t.color for t in tiles])
         pattern_progress = _check_unique_for_values([t.pattern for t in tiles])
+    elif goal_name == "AAAA-BB":
+        single_max = 7.0
+        double_max = 14.0
+        color_progress = _check_4_2_for_values([t.color for t in tiles])
+        pattern_progress = _check_4_2_for_values([t.pattern for t in tiles])
+    elif goal_name == "AA-BB-C-D":
+        single_max = 5.0
+        double_max = 7.0
+        color_progress = _check_2_2_1_1_for_values([t.color for t in tiles])
+        pattern_progress = _check_2_2_1_1_for_values([t.pattern for t in tiles])
+    elif goal_name == "AAA-BB-C":
+        single_max = 7.0
+        double_max = 11.0
+        color_progress = _check_3_2_1_for_values([t.color for t in tiles])
+        pattern_progress = _check_3_2_1_for_values([t.pattern for t in tiles])
     else:
         return 0.0
 
@@ -592,6 +695,149 @@ def _check_unique_for_values(values) -> float:
     # All unique so far - progress based on how many we have
     # 6/6 unique = 1.0, 5/6 = 0.83, 4/6 = 0.67, etc.
     return unique_count / 6.0
+
+
+def _check_4_2_for_values(values) -> float:
+    """
+    Check 4-2 progress for a list of values.
+
+    Returns 0.0 when goal becomes impossible:
+    - More than 2 distinct values (can't achieve 4-2)
+    - Any single value has count > 4 (would exceed 4)
+    """
+    counts = Counter(values)
+    sorted_counts = sorted(counts.values(), reverse=True)
+    num_types = len(sorted_counts)
+
+    if num_types == 0:
+        return 0.0
+
+    # IMPOSSIBLE: More than 2 types - can never achieve 4-2
+    if num_types > 2:
+        return 0.0
+
+    # IMPOSSIBLE: Any type has more than 4 - can never achieve 4-2
+    if sorted_counts[0] > 4:
+        return 0.0
+
+    # Perfect 4-2 achieved
+    if sorted_counts == [4, 2]:
+        return 1.0
+
+    # Check progress based on distribution
+    if num_types == 1:
+        # Only one type present
+        count = sorted_counts[0]
+        if count <= 4:
+            return 0.3  # Could still achieve 4-2 with a second type
+        return 0.0
+    else:
+        # Two types present
+        # Best case: 4-1, 3-2, 3-1, 2-2, etc.
+        if sorted_counts[0] == 4 and sorted_counts[1] == 1:
+            return 0.9  # Just need one more of the second type
+        elif sorted_counts[0] == 3:
+            return 0.7  # Good progress, need one more of first or adjust second
+        elif sorted_counts[0] == 2:
+            return 0.5  # Moderate progress
+        else:
+            return 0.4
+
+
+def _check_2_2_1_1_for_values(values) -> float:
+    """
+    Check 2-2-1-1 progress for a list of values.
+
+    Returns 0.0 when goal becomes impossible:
+    - More than 4 distinct values (can't achieve 2-2-1-1)
+    - Any single value has count > 2 (would exceed 2)
+    """
+    counts = Counter(values)
+    sorted_counts = sorted(counts.values(), reverse=True)
+    num_types = len(sorted_counts)
+
+    if num_types == 0:
+        return 0.0
+
+    # IMPOSSIBLE: More than 4 types - can never achieve 2-2-1-1
+    if num_types > 4:
+        return 0.0
+
+    # IMPOSSIBLE: Any type has more than 2 - can never achieve 2-2-1-1
+    if sorted_counts[0] > 2:
+        return 0.0
+
+    # Perfect 2-2-1-1 achieved
+    if sorted_counts == [2, 2, 1, 1]:
+        return 1.0
+
+    # Check progress based on distribution
+    if num_types == 1:
+        return 0.2  # Very early, need 3 more types
+    elif num_types == 2:
+        return 0.4  # Need 2 more types
+    elif num_types == 3:
+        return 0.6  # Need 1 more type
+    else:
+        # 4 types present, check balance
+        if sorted_counts == [2, 2, 1, 1]:
+            return 1.0
+        elif sorted_counts[0] == 2 and sorted_counts[1] == 2:
+            return 0.9  # Two pairs, just need singles to fill
+        elif sorted_counts[0] == 2:
+            return 0.8  # One pair, progressing well
+        else:
+            return 0.7  # Four singletons, need to pair up
+
+
+def _check_3_2_1_for_values(values) -> float:
+    """
+    Check 3-2-1 progress for a list of values.
+
+    Returns 0.0 when goal becomes impossible:
+    - More than 3 distinct values (can't achieve 3-2-1)
+    - Any single value has count > 3 (would exceed 3)
+    """
+    counts = Counter(values)
+    sorted_counts = sorted(counts.values(), reverse=True)
+    num_types = len(sorted_counts)
+
+    if num_types == 0:
+        return 0.0
+
+    # IMPOSSIBLE: More than 3 types - can never achieve 3-2-1
+    if num_types > 3:
+        return 0.0
+
+    # IMPOSSIBLE: Any type has more than 3 - can never achieve 3-2-1
+    if sorted_counts[0] > 3:
+        return 0.0
+
+    # Perfect 3-2-1 achieved
+    if sorted_counts == [3, 2, 1]:
+        return 1.0
+
+    # Check progress based on distribution
+    if num_types == 1:
+        return 0.2  # Very early, need 2 more types
+    elif num_types == 2:
+        # Two types present
+        if sorted_counts[0] == 3:
+            return 0.7  # Have the 3, need to split remaining
+        elif sorted_counts[0] == 2:
+            return 0.5  # Could become 3-2-1 or 2-2-2
+        else:
+            return 0.4
+    else:
+        # Three types present
+        if sorted_counts[0] == 3 and sorted_counts[1] == 2:
+            return 0.95  # Almost there, just need the 1
+        elif sorted_counts[0] == 3:
+            return 0.8  # Have the 3, need to balance 2 and 1
+        elif sorted_counts[0] == 2:
+            return 0.7  # Need to get one type to 3
+        else:
+            return 0.5  # All singletons, need more concentration
 
 
 def evaluate_buttons(grid: HexGrid, config: HeuristicConfig = None) -> float:
