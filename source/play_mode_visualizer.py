@@ -10,17 +10,18 @@ from tile import Color, Pattern
 from board_configurations import GOAL_POSITIONS
 
 # Base design dimensions (at scale 1.0)
-BASE_WIDTH = 1000
-BASE_HEIGHT = 700
+BASE_WIDTH = 1300  # Wider to fit engine panel
+BASE_HEIGHT = 600  # Reduced height
 BASE_HEX_RADIUS = 30
 
 # Base UI Layout positions (at scale 1.0)
-BASE_BOARD_CENTER = (350, 350)
-BASE_HAND_POSITION = (750, 550)
+BASE_BOARD_CENTER = (350, 300)  # Moved up slightly
+BASE_HAND_POSITION = (750, 575)  # Moved up
 BASE_MARKET_POSITION = (700, 50)
-BASE_GOAL_INFO_POSITION = (960, 30)  # Goal info right of market, vertically aligned
-BASE_STATUS_POSITION = (50, 650)
-BASE_CATS_POSITION = (960, 120)  # Aligned with market
+BASE_GOAL_INFO_POSITION = (1060, 30)  # Goal info moved right to avoid engine panel overlap
+BASE_STATUS_POSITION = (50, 550)  # Moved up
+BASE_CATS_POSITION = (1060, 120)  # Cats panel moved right to avoid engine panel overlap
+BASE_ENGINE_PANEL_POSITION = (700, 150)  # Engine suggestion panel (below market)
 
 # Goal selection UI positions (at scale 1.0)
 BASE_GOAL_OPTIONS_POSITION = (700, 50)  # 4 goal options row (to the right of board)
@@ -60,6 +61,10 @@ class PlayModeVisualizer:
         # Visual feedback
         self.highlighted_hex: Optional[Tuple[int, int, int]] = None
         self.mouse_pos: Tuple[int, int] = (0, 0)  # Track mouse for drag visuals
+
+        # Engine suggestion panel
+        self.engine_panel_position = (int(BASE_ENGINE_PANEL_POSITION[0] * self.scale),
+                                       int(BASE_ENGINE_PANEL_POSITION[1] * self.scale))
 
     def _load_base_tile_images(self):
         """Load tile images from disk at base size."""
@@ -220,6 +225,13 @@ class PlayModeVisualizer:
                 base_image, (self.goal_selection_tile_size, self.goal_selection_tile_size)
             )
 
+        # Engine panel position
+        self.engine_panel_position = (int(BASE_ENGINE_PANEL_POSITION[0] * self.scale),
+                                       int(BASE_ENGINE_PANEL_POSITION[1] * self.scale))
+
+        # Small font for engine panel details
+        self.small_font = pygame.font.Font(None, max(14, int(18 * self.scale)))
+
     def _toggle_fullscreen(self):
         """Toggle between fullscreen and windowed mode."""
         self.is_fullscreen = not self.is_fullscreen
@@ -317,6 +329,16 @@ class PlayModeVisualizer:
                         self.windowed_size = (BASE_WIDTH, BASE_HEIGHT)
                         self.screen = pygame.display.set_mode(self.windowed_size, pygame.RESIZABLE)
                     self._update_scaled_resources()
+                elif event.key == pygame.K_e:
+                    # Toggle engine suggestion (only during PLACE_TILE phase)
+                    if self.game.turn_phase == TurnPhase.PLACE_TILE:
+                        self.game.toggle_engine_suggestion()
+                elif event.key == pygame.K_LEFTBRACKET:
+                    # Decrease engine iterations
+                    self.game.adjust_engine_iterations(increase=False)
+                elif event.key == pygame.K_RIGHTBRACKET:
+                    # Increase engine iterations
+                    self.game.adjust_engine_iterations(increase=True)
 
         return True
 
@@ -467,6 +489,7 @@ class PlayModeVisualizer:
             self._draw_goal_info()
             self._draw_cats()
             self._draw_turn_info()
+            self._draw_engine_panel()
 
         self._draw_status()
         self._draw_controls_hint()
@@ -828,12 +851,121 @@ class PlayModeVisualizer:
     def _draw_controls_hint(self):
         """Draw keyboard controls hint."""
         screen_width = self.screen.get_width()
-        hint_text = "F11: Fullscreen | +/-: Scale | 0: Reset | Scroll: Zoom"
+        # Show engine hint only during PLACE_TILE phase
+        if self.game.show_engine_suggestion and self.game.turn_phase == TurnPhase.PLACE_TILE:
+            hint_text = "E: Hide engine | [/]: Iterations | F11: Fullscreen"
+        elif self.game.turn_phase == TurnPhase.PLACE_TILE:
+            hint_text = "E: Engine suggestions | F11: Fullscreen | +/-: Scale"
+        else:
+            hint_text = "F11: Fullscreen | +/-: Scale"
         hint_surface = self.font.render(hint_text, True, (120, 120, 120))
         hint_rect = hint_surface.get_rect()
         hint_rect.bottomright = (screen_width - int(10 * self.scale),
                                   self.screen.get_height() - int(10 * self.scale))
         self.screen.blit(hint_surface, hint_rect)
+
+    def _draw_engine_panel(self):
+        """Draw engine suggestion panel if visible (only during PLACE_TILE phase)."""
+        if not self.game.show_engine_suggestion:
+            return
+        if self.game.turn_phase != TurnPhase.PLACE_TILE:
+            return
+
+        x, y = self.engine_panel_position
+        panel_width = int(300 * self.scale)  # Narrower panel
+        line_height = int(18 * self.scale)
+        padding = int(10 * self.scale)
+        max_chars = 40  # Text truncation threshold
+
+        # Calculate panel height based on content
+        if self.game.engine_computing:
+            panel_height = int(60 * self.scale)
+        elif self.game.engine_candidates:
+            # Header + candidates (each ~4 lines) + footer
+            n_candidates = len(self.game.engine_candidates)
+            panel_height = int((50 + n_candidates * 70) * self.scale)
+        else:
+            panel_height = int(60 * self.scale)
+
+        # Draw panel background
+        panel_rect = pygame.Rect(x, y, panel_width, panel_height)
+        pygame.draw.rect(self.screen, (250, 250, 240), panel_rect, border_radius=int(5 * self.scale))
+        pygame.draw.rect(self.screen, (100, 100, 100), panel_rect, width=2, border_radius=int(5 * self.scale))
+
+        # Header
+        header_text = f"ENGINE ({self.game.engine_iterations} iter)"
+        header_surface = self.font.render(header_text, True, (0, 0, 100))
+        self.screen.blit(header_surface, (x + padding, y + padding))
+
+        current_y = y + padding + line_height + int(5 * self.scale)
+
+        if self.game.engine_computing:
+            # Show computing message
+            computing_text = "Computing..."
+            computing_surface = self.font.render(computing_text, True, (100, 100, 100))
+            self.screen.blit(computing_surface, (x + padding, current_y))
+        elif self.game.engine_candidates:
+            # Import here to get access to CandidateInfo for action description
+            from simulation_mode import SimulationMode
+            sim = SimulationMode.from_game_mode(self.game)
+
+            # Draw each candidate
+            for i, candidate in enumerate(self.game.engine_candidates):
+                is_best = (i == 0)
+
+                # Candidate separator line
+                if i > 0:
+                    pygame.draw.line(
+                        self.screen, (200, 200, 200),
+                        (x + padding, current_y - int(3 * self.scale)),
+                        (x + panel_width - padding, current_y - int(3 * self.scale))
+                    )
+
+                # Star for best move
+                prefix = "★ " if is_best else "  "
+                action_desc = candidate.action_description(sim)
+
+                # Truncate if too long
+                if len(action_desc) > max_chars:
+                    action_desc = action_desc[:max_chars-2] + ".."
+
+                # Action line
+                action_color = (0, 100, 0) if is_best else (50, 50, 50)
+                action_text = f"{prefix}{action_desc}"
+                action_surface = self.small_font.render(action_text, True, action_color)
+                self.screen.blit(action_surface, (x + padding, current_y))
+                current_y += line_height
+
+                # Score line
+                score_text = f"   Exp: {candidate.avg_score:.1f} pts ({candidate.visits} visits)"
+                score_surface = self.small_font.render(score_text, True, (80, 80, 80))
+                self.screen.blit(score_surface, (x + padding, current_y))
+                current_y += line_height
+
+                # Breakdown reasons (show top reason for each category)
+                breakdown = candidate.breakdown
+                if breakdown.cat_reasons:
+                    reason_text = f"   Cat: {breakdown.cat_reasons[0]}"
+                    if len(reason_text) > max_chars:
+                        reason_text = reason_text[:max_chars-2] + ".."
+                    reason_surface = self.small_font.render(reason_text, True, (100, 80, 60))
+                    self.screen.blit(reason_surface, (x + padding, current_y))
+                    current_y += line_height
+
+                if breakdown.goal_reasons:
+                    reason_text = f"   Goal: {breakdown.goal_reasons[0]}"
+                    if len(reason_text) > max_chars:
+                        reason_text = reason_text[:max_chars-2] + ".."
+                    reason_surface = self.small_font.render(reason_text, True, (60, 80, 100))
+                    self.screen.blit(reason_surface, (x + padding, current_y))
+                    current_y += line_height
+
+                current_y += int(5 * self.scale)  # Spacing between candidates
+        else:
+            # No candidates yet
+            no_data_text = "Press E to analyze"
+            no_data_surface = self.font.render(no_data_text, True, (100, 100, 100))
+            self.screen.blit(no_data_surface, (x + padding, current_y))
 
     def run(self):
         """Main game loop."""

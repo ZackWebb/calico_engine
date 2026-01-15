@@ -1,7 +1,10 @@
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, TYPE_CHECKING
 
 from game_mode import GameMode
 from game_state import Action, TurnPhase
+
+if TYPE_CHECKING:
+    from mcts_agent import CandidateInfo
 
 
 class PlayMode(GameMode):
@@ -19,6 +22,12 @@ class PlayMode(GameMode):
         # Maps slot index (0-2) to goal option index (0-3), None if empty
         self.goal_slot_assignments: List[Optional[int]] = [None, None, None]
         self.dragging_goal_index: Optional[int] = None  # Goal being dragged
+
+        # Engine suggestion state
+        self.show_engine_suggestion: bool = False
+        self.engine_candidates: Optional[List['CandidateInfo']] = None
+        self.engine_computing: bool = False
+        self.engine_iterations: int = 1000  # Configurable via +/- keys
 
     def set_state_change_callback(self, callback: Callable):
         """Set callback to notify visualizer of state changes."""
@@ -121,6 +130,7 @@ class PlayMode(GameMode):
             # Clear goal selection state
             self.goal_slot_assignments = [None, None, None]
             self.dragging_goal_index = None
+            self._clear_engine_cache()
             self._notify_state_change()
         return success
 
@@ -156,6 +166,7 @@ class PlayMode(GameMode):
         success = self.apply_action(action)
         if success:
             self.selected_hand_tile = None
+            self._clear_engine_cache()
             self._notify_state_change()
         return success
 
@@ -174,6 +185,7 @@ class PlayMode(GameMode):
 
         success = self.apply_action(action)
         if success:
+            self._clear_engine_cache()
             self._notify_state_change()
         return success
 
@@ -218,3 +230,70 @@ class PlayMode(GameMode):
                 'patterns': cat.patterns
             }
         return scores
+
+    # --- Engine Suggestion Methods ---
+
+    def toggle_engine_suggestion(self):
+        """Toggle engine suggestion display. Computes if turning on and not cached."""
+        self.show_engine_suggestion = not self.show_engine_suggestion
+        if self.show_engine_suggestion and self.engine_candidates is None:
+            self._compute_engine_suggestion()
+
+    def adjust_engine_iterations(self, increase: bool):
+        """Adjust MCTS iteration count with scaled steps. Clamps to [250, 100000].
+
+        Uses different step sizes based on current value:
+        - Below 1000: step by 250
+        - 1000-5000: step by 500
+        - 5000-20000: step by 2500
+        - Above 20000: step by 10000
+        """
+        if increase:
+            if self.engine_iterations < 1000:
+                step = 250
+            elif self.engine_iterations < 5000:
+                step = 500
+            elif self.engine_iterations < 20000:
+                step = 2500
+            else:
+                step = 10000
+            self.engine_iterations = min(100000, self.engine_iterations + step)
+        else:
+            if self.engine_iterations <= 1000:
+                step = 250
+            elif self.engine_iterations <= 5000:
+                step = 500
+            elif self.engine_iterations <= 20000:
+                step = 2500
+            else:
+                step = 10000
+            self.engine_iterations = max(250, self.engine_iterations - step)
+
+        # Clear cached results since iteration count changed
+        if self.engine_candidates is not None:
+            self.engine_candidates = None
+            if self.show_engine_suggestion:
+                self._compute_engine_suggestion()
+
+    def _compute_engine_suggestion(self):
+        """Run MCTS to get candidate moves with detailed analysis."""
+        from mcts_agent import MCTSAgent
+        from simulation_mode import SimulationMode
+
+        self.engine_computing = True
+        self._notify_state_change()
+
+        # Create a SimulationMode copy from current game state
+        sim = SimulationMode.from_game_mode(self)
+
+        # Run MCTS with configured iterations
+        agent = MCTSAgent(max_iterations=self.engine_iterations)
+        _, candidates = agent.select_action_with_detailed_analysis(sim, n_candidates=5)
+
+        self.engine_candidates = candidates
+        self.engine_computing = False
+        self._notify_state_change()
+
+    def _clear_engine_cache(self):
+        """Clear cached engine suggestions (called when position changes)."""
+        self.engine_candidates = None

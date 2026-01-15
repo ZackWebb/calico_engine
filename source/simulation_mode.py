@@ -20,6 +20,47 @@ class SimulationMode(GameMode):
         super().__init__(board_config)
         self._action_history: List[Action] = []
 
+    @classmethod
+    def from_game_mode(cls, game: 'GameMode') -> 'SimulationMode':
+        """
+        Create a SimulationMode copy from any GameMode instance.
+
+        Used by engine suggestion feature to analyze the current play mode state.
+        """
+        sim = object.__new__(cls)
+
+        # Copy tile bag
+        sim.tile_bag = copy.copy(game.tile_bag)
+
+        # Copy player state
+        sim.player = copy.copy(game.player)
+
+        # Copy market (may be None during goal selection)
+        if game.market is not None:
+            sim.market = copy.copy(game.market)
+            sim.market.tile_bag = sim.tile_bag
+        else:
+            sim.market = None
+
+        # Share immutable objects
+        sim.cats = game.cats
+        sim.goals = game.goals
+        sim.goal_options = game.goal_options
+        sim.goal_positions = game.goal_positions
+        sim._tiles_initialized = game._tiles_initialized
+
+        sim.board_config = game.board_config
+        sim.board_name = game.board_name
+
+        # Copy scalars
+        sim.turn_number = game.turn_number
+        sim.turn_phase = game.turn_phase
+
+        # Initialize empty action history
+        sim._action_history = []
+
+        return sim
+
     def run(self):
         """
         No-op for simulation mode.

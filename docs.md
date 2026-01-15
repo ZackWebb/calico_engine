@@ -144,14 +144,14 @@ class CatNewCat(Cat):
 Run all commands from the project root directory using `uv run cli.py`:
 
 ```bash
-uv run cli.py play              # Interactive game with pygame
-uv run cli.py mcts              # Run single MCTS game
+uv run cli.py play                # Interactive game with pygame
+uv run cli.py mcts                # Run single MCTS game
 uv run cli.py mcts --baseline 10  # Compare MCTS vs random
-uv run cli.py mcts --record     # Record game for replay
-uv run cli.py replay --latest   # Replay most recent recorded game
-uv run cli.py replay --list     # List available recordings
-uv run cli.py benchmark         # Run benchmark with MLflow tracking
-uv run cli.py mlflow-ui         # Start MLflow UI at localhost:5000
+uv run cli.py mcts --record       # Record game for replay
+uv run cli.py replay --latest     # Replay most recent recorded game
+uv run cli.py replay --list       # List available recordings
+uv run cli.py benchmark           # Run benchmark with MLflow tracking
+uv run cli.py mlflow-ui           # Start MLflow UI at localhost:5000
 ```
 
 ## Game Recording
@@ -212,6 +212,40 @@ The `GameMetadata` class (in `source/game_metadata.py`) provides:
 
 This is designed to be extensible - when you add new boards, goals, or cat types, the metadata system will capture them automatically.
 
+## Engine Suggestion Feature (Play Mode)
+
+Press `E` during play to see MCTS-recommended moves with score breakdowns.
+
+### Controls
+
+| Key | Action |
+|-----|--------|
+| `E` | Toggle engine suggestion panel |
+| `[` | Decrease MCTS iterations (scaled steps, min 250) |
+| `]` | Increase MCTS iterations (scaled steps, max 100,000) |
+
+### What It Shows
+
+For each candidate move:
+- **Action description**: Tile placement and market choice
+- **Expected score**: MCTS average score estimate
+- **Visits**: Number of MCTS simulations (higher = more confident)
+- **Breakdown reasons**: Cat potential, goal progress, button opportunities
+
+### Key Components
+
+- `ScoreBreakdown` dataclass in `heuristic.py` - Detailed score with reasons
+- `evaluate_state_with_breakdown()` - Evaluation with human-readable explanations
+- `CandidateInfo` dataclass in `mcts_agent.py` - Full candidate analysis
+- `select_action_with_detailed_analysis()` - MCTS with score breakdowns
+- `PlayMode.toggle_engine_suggestion()` - Toggle and compute suggestions
+- `PlayModeVisualizer._draw_engine_panel()` - Render suggestion panel
+
+### Future Phases (see PLAN_engine_suggestion.md)
+
+- **Phase 2**: Analysis mode sandbox for exploring alternative lines
+- **Phase 3**: Monte Carlo comparison, visual hex highlighting
+
 ## Test Suite
 
 Run tests with:
@@ -227,7 +261,10 @@ Key test files:
 - `tests/test_game_record.py` - Recording/replay functionality
 - `tests/test_game_metadata.py` - Game metadata serialization
 - `tests/test_heuristic.py` - Heuristic evaluation
+- `tests/test_engine_suggestion.py` - Engine suggestion feature
 
 ## Known TODOs
 
 - [ ] Add remaining cats to complete buckets (6 more cats needed)
+- [ ] Analysis mode (Phase 2) - Sandbox for exploring alternative lines
+- [ ] Monte Carlo comparison (Phase 3) - Compare moves across random futures

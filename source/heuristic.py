@@ -4,8 +4,10 @@ Heuristic evaluation functions for Calico MCTS.
 Estimates the final score from a partial game state by:
 1. Counting current scoring (cats, goals, buttons)
 2. Adding potential points for near-complete patterns
+
+Also provides detailed breakdown evaluation for engine suggestion feature.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Set, Tuple, Optional, Dict
 from collections import Counter
 from functools import lru_cache
@@ -13,6 +15,40 @@ from functools import lru_cache
 from hex_grid import HexGrid, Pattern, Color
 from cat import Cat, CatMillie, CatLeo, CatRumi, CatTecolote
 from button import score_buttons, count_buttons_by_color
+
+
+@dataclass
+class ScoreBreakdown:
+    """Detailed score breakdown with human-readable reasons.
+
+    Used by the engine suggestion feature to explain why a move is good.
+    """
+    total: float = 0.0
+    cat_score: float = 0.0
+    goal_score: float = 0.0
+    button_score: float = 0.0
+    cat_reasons: List[str] = field(default_factory=list)
+    goal_reasons: List[str] = field(default_factory=list)
+    button_reasons: List[str] = field(default_factory=list)
+
+    def top_reason(self, category: str) -> str:
+        """Get the top reason for a category, or empty string if none."""
+        reasons = getattr(self, f"{category}_reasons", [])
+        return reasons[0] if reasons else ""
+
+    def format_compact(self) -> str:
+        """Format as compact multi-line string for display."""
+        lines = []
+        if self.cat_score != 0:
+            reason = f" ({self.cat_reasons[0]})" if self.cat_reasons else ""
+            lines.append(f"Cats: {self.cat_score:+.1f}{reason}")
+        if self.goal_score != 0:
+            reason = f" ({self.goal_reasons[0]})" if self.goal_reasons else ""
+            lines.append(f"Goals: {self.goal_score:+.1f}{reason}")
+        if self.button_score != 0:
+            reason = f" ({self.button_reasons[0]})" if self.button_reasons else ""
+            lines.append(f"Buttons: {self.button_score:+.1f}{reason}")
+        return "\n".join(lines) if lines else "No significant factors"
 
 
 @dataclass
@@ -397,6 +433,252 @@ def evaluate_state(game, config: HeuristicConfig = None) -> float:
     score += config.button_ratio * evaluate_buttons(grid, config)
 
     return score
+
+
+def evaluate_state_with_breakdown(game, config: HeuristicConfig = None) -> ScoreBreakdown:
+    """
+    Evaluate state and return detailed breakdown with reasons.
+
+    Similar to evaluate_state but collects human-readable explanations
+    for why each component contributes to the score.
+
+    Args:
+        game: SimulationMode instance
+        config: HeuristicConfig for weight tuning (uses defaults if None)
+
+    Returns:
+        ScoreBreakdown with total score and categorized reasons
+    """
+    if config is None:
+        config = DEFAULT_HEURISTIC_CONFIG
+
+    grid = game.player.grid
+    breakdown = ScoreBreakdown()
+
+    # Evaluate cats with reasons
+    cat_score, cat_reasons = evaluate_cats_with_reasons(game)
+    breakdown.cat_score = config.cat_ratio * cat_score
+    breakdown.cat_reasons = cat_reasons
+
+    # Evaluate goals with reasons
+    goal_score, goal_reasons = evaluate_goals_with_reasons(game, config)
+    breakdown.goal_score = goal_score  # goal weight is always 1.0
+    breakdown.goal_reasons = goal_reasons
+
+    # Evaluate buttons with reasons
+    button_score, button_reasons = evaluate_buttons_with_reasons(grid, config)
+    breakdown.button_score = config.button_ratio * button_score
+    breakdown.button_reasons = button_reasons
+
+    breakdown.total = breakdown.cat_score + breakdown.goal_score + breakdown.button_score
+
+    return breakdown
+
+
+def evaluate_cats_with_reasons(game) -> Tuple[float, List[str]]:
+    """
+    Evaluate cat scoring and return score with reasons.
+
+    Returns:
+        Tuple of (total_score, list_of_reasons)
+    """
+    grid = game.player.grid
+    total = 0.0
+    reasons = []
+
+    for cat in game.cats:
+        # Current actual score
+        actual_score = cat.score(grid)
+        total += actual_score
+
+        if actual_score > 0:
+            groups_count = len(cat.find_all_groups(grid, set()))
+            reasons.append(f"{cat.name}: {actual_score:.0f}pts ({groups_count} groups)")
+
+        # Potential from incomplete groups
+        potential, potential_reason = estimate_cat_potential_with_reason(grid, cat)
+        total += potential
+
+        if potential > 0 and potential_reason:
+            reasons.append(potential_reason)
+
+    # Sort reasons by implied score (those with higher numbers first)
+    # Actual scores before potential
+    reasons.sort(key=lambda r: ("potential" not in r.lower(), r), reverse=True)
+
+    return total, reasons[:3]  # Return top 3 reasons
+
+
+def estimate_cat_potential_with_reason(grid: HexGrid, cat: Cat) -> Tuple[float, str]:
+    """
+    Estimate cat potential and return a human-readable reason.
+
+    Returns:
+        Tuple of (potential_score, reason_string)
+    """
+    if isinstance(cat, CatMillie):
+        total = 0.0
+        best_pattern = None
+        for pattern in cat.patterns:
+            pot = evaluate_millie_potential(grid, pattern, cat.point_value)
+            if pot > 0:
+                total += pot
+                best_pattern = pattern
+        if total > 0 and best_pattern:
+            return total, f"{cat.name} potential ({best_pattern.name.lower()} pairs)"
+        return total, ""
+
+    elif isinstance(cat, CatLeo):
+        potential = evaluate_leo_potential(grid, cat)
+        if potential > 0:
+            # Find the best line progress
+            best_progress = _find_best_line_progress(grid, cat.patterns, 5)
+            if best_progress:
+                count, pattern = best_progress
+                return potential, f"{cat.name} {count}/5 {pattern.name.lower()} line"
+        return potential, ""
+
+    elif isinstance(cat, CatRumi):
+        potential = evaluate_rumi_potential(grid, cat)
+        if potential > 0:
+            best_progress = _find_best_line_progress(grid, cat.patterns, 3)
+            if best_progress:
+                count, pattern = best_progress
+                return potential, f"{cat.name} {count}/3 {pattern.name.lower()} line"
+        return potential, ""
+
+    elif isinstance(cat, CatTecolote):
+        potential = evaluate_tecolote_potential(grid, cat)
+        if potential > 0:
+            best_progress = _find_best_line_progress(grid, cat.patterns, 4)
+            if best_progress:
+                count, pattern = best_progress
+                return potential, f"{cat.name} {count}/4 {pattern.name.lower()} line"
+        return potential, ""
+
+    return 0.0, ""
+
+
+def _find_best_line_progress(
+    grid: HexGrid, patterns: Tuple[Pattern, ...], line_length: int
+) -> Optional[Tuple[int, Pattern]]:
+    """Find the best line progress for given patterns and line length."""
+    if line_length == 5:
+        all_lines = enumerate_all_5_lines(grid)
+    elif line_length == 4:
+        all_lines = enumerate_all_4_lines(grid)
+    elif line_length == 3:
+        all_lines = enumerate_all_3_lines(grid)
+    else:
+        return None
+
+    best_count = 0
+    best_pattern = None
+
+    for pattern in patterns:
+        for line in all_lines:
+            count, blocked = evaluate_line_for_pattern(grid, line, pattern)
+            if not blocked and count > best_count:
+                best_count = count
+                best_pattern = pattern
+
+    if best_count >= 2 and best_pattern:
+        return (best_count, best_pattern)
+    return None
+
+
+def evaluate_goals_with_reasons(game, config: HeuristicConfig = None) -> Tuple[float, List[str]]:
+    """
+    Evaluate goal scoring and return score with reasons.
+
+    Returns:
+        Tuple of (total_score, list_of_reasons)
+    """
+    if config is None:
+        config = DEFAULT_HEURISTIC_CONFIG
+
+    grid = game.player.grid
+    total = 0.0
+    reasons = []
+
+    for goal in game.goals:
+        # Current actual score
+        actual = goal.score(grid)
+        total += actual
+
+        # Get neighbor info for progress reporting
+        tiles = goal.get_neighbor_tiles(grid)
+        filled_count = len(tiles)
+
+        if actual > 0:
+            reasons.append(f"{goal.name}: {actual}pts")
+        elif filled_count > 0:
+            # Report progress
+            potential = estimate_goal_potential(grid, goal, config)
+            if potential > 0:
+                reasons.append(f"{goal.name}: {filled_count}/6 filled")
+            total += potential
+
+    return total, reasons[:3]
+
+
+def evaluate_buttons_with_reasons(grid: HexGrid, config: HeuristicConfig = None) -> Tuple[float, List[str]]:
+    """
+    Evaluate button scoring and return score with reasons.
+
+    Returns:
+        Tuple of (total_score, list_of_reasons)
+    """
+    if config is None:
+        config = DEFAULT_HEURISTIC_CONFIG
+
+    reasons = []
+
+    # Get button counts
+    button_counts = count_buttons_by_color(grid)
+    total_buttons = sum(button_counts.values())
+    has_rainbow = all(count >= 1 for count in button_counts.values())
+    current_score = total_buttons * 3 + (5 if has_rainbow else 0)
+
+    if total_buttons > 0:
+        colors_with_buttons = [c.name.lower() for c, count in button_counts.items() if count > 0]
+        if has_rainbow:
+            reasons.append(f"Rainbow bonus! ({total_buttons} buttons)")
+        else:
+            reasons.append(f"{total_buttons} buttons ({', '.join(colors_with_buttons[:2])})")
+
+    # Count color pairs for potential
+    color_pairs = count_all_color_pairs(grid)
+    pair_potential = sum(color_pairs.values())
+
+    if pair_potential > 0:
+        colors_with_pairs = [c.name.lower() for c, count in color_pairs.items() if count > 0]
+        reasons.append(f"Pairs: {', '.join(colors_with_pairs[:2])}")
+
+    # Rainbow potential
+    colors_with_buttons_count = sum(1 for count in button_counts.values() if count >= 1)
+    colors_with_potential = colors_with_buttons_count
+    for color in Color:
+        if button_counts.get(color, 0) == 0 and color_pairs.get(color, 0) > 0:
+            colors_with_potential += 1
+
+    rainbow_potential = 0.0
+    if colors_with_buttons_count >= 5:
+        rainbow_potential = 4.5
+    elif colors_with_buttons_count >= 4:
+        rainbow_potential = 3.5
+        reasons.append(f"Rainbow progress: {colors_with_buttons_count}/6 colors")
+    elif colors_with_buttons_count >= 3:
+        rainbow_potential = 2.0
+
+    if colors_with_potential >= 6 and colors_with_buttons_count < 6:
+        rainbow_potential += config.rainbow_progress_bonus
+    elif colors_with_potential >= 5 and colors_with_buttons_count < 5:
+        rainbow_potential += config.rainbow_progress_bonus * 0.67
+
+    total = current_score + pair_potential + rainbow_potential
+
+    return total, reasons[:3]
 
 
 def evaluate_cats(game) -> float:

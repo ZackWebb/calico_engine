@@ -13,7 +13,78 @@ from simulation_mode import SimulationMode
 from game_state import Action, TurnPhase
 
 if TYPE_CHECKING:
-    from heuristic import HeuristicConfig
+    from heuristic import HeuristicConfig, ScoreBreakdown
+
+
+@dataclass
+class CandidateInfo:
+    """Full analysis of a candidate move for engine suggestion display.
+
+    Contains the action, MCTS statistics, and detailed score breakdown
+    explaining why the move is good or bad.
+    """
+    action: Action
+    visits: int
+    avg_score: float
+    breakdown: 'ScoreBreakdown'
+
+    def action_description(self, game: SimulationMode) -> str:
+        """Generate human-readable description of the action."""
+        if self.action.action_type == "select_goals":
+            indices = self.action.selected_goal_indices
+            goal_names = []
+            for idx in indices:
+                if idx < len(game.goal_options):
+                    goal_class = game.goal_options[idx]
+                    name = goal_class.__name__.replace('Goal', '').replace('_', '-')
+                    # Clean up names
+                    name = name.replace('AllUnique', 'All Unique')
+                    goal_names.append(name)
+            return f"Goals: {', '.join(goal_names)}"
+
+        elif self.action.action_type == "place_and_choose":
+            # Get tile info from hand
+            hand_idx = self.action.hand_index
+            tile = game.player.tiles[hand_idx] if hand_idx < len(game.player.tiles) else None
+
+            if tile:
+                tile_str = f"{tile.color.name}/{tile.pattern.name}"
+            else:
+                tile_str = f"hand[{hand_idx}]"
+
+            pos = self.action.position
+            pos_str = f"({pos[0]},{pos[1]})" if pos else "?"
+
+            if self.action.market_index is not None:
+                market_tile = game.market.tiles[self.action.market_index] if self.action.market_index < len(game.market.tiles) else None
+                if market_tile:
+                    market_str = f"→ {market_tile.color.name}/{market_tile.pattern.name}"
+                else:
+                    market_str = f"→ market[{self.action.market_index}]"
+            else:
+                market_str = "(final turn)"
+
+            return f"{tile_str} at {pos_str} {market_str}"
+
+        elif self.action.action_type == "place_tile":
+            hand_idx = self.action.hand_index
+            tile = game.player.tiles[hand_idx] if hand_idx < len(game.player.tiles) else None
+            if tile:
+                tile_str = f"{tile.color.name}/{tile.pattern.name}"
+            else:
+                tile_str = f"hand[{hand_idx}]"
+            pos = self.action.position
+            pos_str = f"({pos[0]},{pos[1]})" if pos else "?"
+            return f"Place {tile_str} at {pos_str}"
+
+        elif self.action.action_type == "choose_market":
+            market_idx = self.action.market_index
+            tile = game.market.tiles[market_idx] if market_idx < len(game.market.tiles) else None
+            if tile:
+                return f"Take {tile.color.name}/{tile.pattern.name}"
+            return f"Take market[{market_idx}]"
+
+        return str(self.action.action_type)
 
 
 @dataclass
@@ -263,6 +334,76 @@ class MCTSAgent:
         for child in sorted_children[:n_candidates]:
             avg_score = child.total_score / child.visits if child.visits > 0 else 0.0
             candidates.append((child.action, child.visits, avg_score))
+
+        if self.verbose:
+            self._print_stats(root)
+
+        return best_child.action, candidates
+
+    def select_action_with_detailed_analysis(
+        self, game: SimulationMode, n_candidates: int = 5
+    ) -> Tuple[Action, List[CandidateInfo]]:
+        """
+        Select the best action and return detailed analysis with score breakdowns.
+
+        Used by the engine suggestion feature to show why moves are good.
+
+        Args:
+            game: Current game state (will not be modified)
+            n_candidates: Number of top candidates to return
+
+        Returns:
+            Tuple of (best_action, list_of_CandidateInfo)
+        """
+        from heuristic import evaluate_state_with_breakdown, ScoreBreakdown
+
+        # Create root node from current state
+        root = MCTSNode(state=game.copy(), use_combined_actions=self.use_combined_actions)
+
+        # Get number of iterations (higher for goal selection)
+        iterations = self._get_iterations_for_phase(game)
+
+        # Run MCTS iterations
+        for _ in range(iterations):
+            node = self._select(root)
+
+            if not node.is_terminal and not node.is_fully_expanded:
+                node = node.expand()
+
+            score = self._simulate(node)
+            self._backpropagate(node, score)
+
+        # Handle edge case
+        if not root.children:
+            if game.turn_phase == TurnPhase.GOAL_SELECTION:
+                actions = game.get_legal_actions()
+            elif self.use_combined_actions:
+                actions = game.get_combined_legal_actions()
+            else:
+                actions = game.get_legal_actions()
+            if actions:
+                empty_breakdown = ScoreBreakdown()
+                return actions[0], [CandidateInfo(actions[0], 0, 0.0, empty_breakdown)]
+            return None, []
+
+        # Sort children by visits (robust selection)
+        sorted_children = sorted(root.children, key=lambda c: c.visits, reverse=True)
+        best_child = sorted_children[0]
+
+        # Extract top candidates with detailed breakdowns
+        candidates = []
+        for child in sorted_children[:n_candidates]:
+            avg_score = child.total_score / child.visits if child.visits > 0 else 0.0
+
+            # Get detailed breakdown for this move's resulting position
+            breakdown = evaluate_state_with_breakdown(child.state, self.heuristic_config)
+
+            candidates.append(CandidateInfo(
+                action=child.action,
+                visits=child.visits,
+                avg_score=avg_score,
+                breakdown=breakdown
+            ))
 
         if self.verbose:
             self._print_stats(root)
