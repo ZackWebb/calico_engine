@@ -268,3 +268,7 @@ Key test files:
 - [ ] Add remaining cats to complete buckets (6 more cats needed)
 - [ ] Analysis mode (Phase 2) - Sandbox for exploring alternative lines
 - [ ] Monte Carlo comparison (Phase 3) - Compare moves across random futures
+
+## Python dependency security
+
+Use uv 0.13.4 or newer. The uv resolver constraint keeps certifi at 2026.10.19 or newer, including through MLflow. If using pip, bootstrap pip 26.2.2 or newer separately; it carries its own CA bundle.
